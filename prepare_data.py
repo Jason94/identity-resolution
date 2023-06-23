@@ -36,11 +36,9 @@ def generate_pairs(data, label):
         ]
         for i in range(len(tools) - 1):
             for j in range(i + 1, len(tools)):
-                pair = (
-                    row[tools[i] + "_first_name"] + " " + row[tools[i] + "_last_name"],
-                    row[tools[j] + "_first_name"] + " " + row[tools[j] + "_last_name"],
-                )
-                pairs.append((pair, label))
+                set_1 = (row[tools[i] + "_first_name"], row[tools[i] + "_last_name"])
+                set_2 = (row[tools[j] + "_first_name"], row[tools[j] + "_last_name"])
+                pairs.append((set_1, set_2, label))
     return pairs
 
 
@@ -48,9 +46,11 @@ def generate_pairs(data, label):
 def write_data(filename, pairs):
     with open(filename, "w", newline="") as file:
         writer = csv.writer(file)
-        writer.writerow(["name_1", "name_2", "label"])
+        writer.writerow(
+            ["first_name_1", "last_name_1", "first_name_2", "last_name_2", "label"]
+        )
         for pair in pairs:
-            writer.writerow([pair[0][0], pair[0][1], pair[1]])
+            writer.writerow([pair[0][0], pair[0][1], pair[1][0], pair[1][1], pair[2]])
 
 
 def main():
