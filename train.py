@@ -49,11 +49,23 @@ class NameDataset(Dataset):
         return (name1_tensor, len1), (name2_tensor, len2), label
 
 
-def train_model(model, data_loader, optimizer, criterion, n_epochs=N_EPOCHS):
+def train_model(
+    model,
+    data_loader,
+    optimizer,
+    criterion,
+    device: torch.device = torch.device("cpu"),
+    n_epochs=N_EPOCHS,
+):
     for epoch in range(n_epochs):
         total_loss = 0.0
 
         for (name1_tensor, len1), (name2_tensor, len2), label in tqdm(data_loader):
+            # Move tensors to the device
+            name1_tensor = name1_tensor.to(device)
+            name2_tensor = name2_tensor.to(device)
+            label = label.to(device)
+
             # Forward pass through the model
             output1 = model(name1_tensor, len1)
             output2 = model(name2_tensor, len2)
@@ -75,9 +87,13 @@ if __name__ == "__main__":
     char_to_int, chars = create_char_to_int()
 
     # Create model instance
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Found device {device}")
+
     model = ContactEncoder(len(chars))
     if os.path.exists(SAVED_MODEL_PATH):
         model.load_state_dict(torch.load(SAVED_MODEL_PATH))
+    model.to(device)
 
     # Define the optimizer and criterion
     optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -89,6 +105,6 @@ if __name__ == "__main__":
     )
 
     # Train the model
-    train_model(model, data_loader, optimizer, criterion)
+    train_model(model, data_loader, optimizer, criterion, device)
 
     torch.save(model.state_dict(), SAVED_MODEL_PATH)
