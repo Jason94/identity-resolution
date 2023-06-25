@@ -30,15 +30,27 @@ class ContactEncoder(nn.Module):
         # Fully connected layer
         self.fc = nn.Linear(hidden_dim * 2, embedding_dim)
 
-    def forward(self, name_tensor):
+    def forward(self, name_tensor, lengths):
+        # Sort name_tensor and lengths by the corresponding lengths in descending order
+        sorted_lengths, sorted_indices = torch.sort(lengths, descending=True)
+        sorted_name_tensor = name_tensor[sorted_indices]
+
         # Pass name tensor through embedding layer
-        embedded = self.embedding(name_tensor)
+        embedded = self.embedding(sorted_name_tensor)
+
+        # Pack the sequence
+        packed = rnn_utils.pack_padded_sequence(
+            embedded, sorted_lengths, batch_first=True, enforce_sorted=False
+        )
 
         # Pass embeddings through GRU
-        outputs, hidden = self.gru(embedded.view(len(name_tensor), 1, -1))
+        packed_outputs, hidden = self.gru(packed)
+
+        # Unpack the sequence
+        outputs, _ = rnn_utils.pad_packed_sequence(packed_outputs, batch_first=True)
 
         # Take the output from the final time step
-        out = outputs[-1]
+        out = outputs[range(outputs.shape[0]), lengths - 1, :]
 
         # Pass through Fully connected layer
         embedding = self.fc(out)
@@ -48,7 +60,11 @@ class ContactEncoder(nn.Module):
     @staticmethod
     def preprocess_names(first_name, last_name, char_to_int, max_len=50):
         # Concatenate first name and last name
-        name = first_name + " " + last_name
+        try:
+            name = first_name + " " + last_name
+        except Exception as e:
+            print(f"Error processing '{first_name}' & '{last_name}'")
+            raise e
 
         # Truncate or pad name to max_len
         name = name[:max_len].ljust(max_len, ContactEncoder.PAD_CHARACTER)
@@ -56,7 +72,13 @@ class ContactEncoder(nn.Module):
         # Convert name to tensor of character indices
         name_tensor = torch.tensor([char_to_int[char] for char in name])
 
-        return name_tensor
+        # Count the number of non-pad characters
+        non_pad_count = (
+            (name_tensor != char_to_int[ContactEncoder.PAD_CHARACTER]).sum().item()
+        )
+
+        # Return name tensor and its length
+        return name_tensor, non_pad_count
 
 
 def create_char_to_int():
@@ -74,13 +96,15 @@ if __name__ == "__main__":
 
     first_name = "John"
     last_name = "Doe"
-    name_tensor = ContactEncoder.preprocess_names(first_name, last_name, char_to_int)
+    name_tensor, lengths = ContactEncoder.preprocess_names(
+        first_name, last_name, char_to_int
+    )
 
     # Create model instance
     model = ContactEncoder(len(chars))
 
     # Generate embedding
-    embedding = model(name_tensor)
+    embedding = model(name_tensor.unsqueeze(0), torch.tensor([lengths]))
 
     print(first_name, last_name)
     print(name_tensor)
