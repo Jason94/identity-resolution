@@ -47,12 +47,12 @@ def create_html_report(all_preds, all_labels, file_name, title: str):
         style_correct = "background-color: lightgreen"
         style_error = "background-color: lightcoral"
 
-        if row.name == "eval_duplicates":
-            return style_correct if duplicate_correct else style_error
+        if duplicate_correct:
+            return [style_correct for _ in row]
         else:
-            return ""
+            return [style_error for _ in row]
 
-    styled_report = report_df.style.apply(highlight_correct)
+    styled_report = report_df.style.apply(highlight_correct, axis=1)
 
     styled_report.set_table_styles(
         [
@@ -90,7 +90,7 @@ def create_html_report(all_preds, all_labels, file_name, title: str):
             <h2>Label Prediction Distributions</h2>
             {distributions_plot_base64}
             <h2>Evaluation Dataset</h2>
-            {styled_report.render()}
+            {styled_report.to_html()}
         </body>
         </html>
         """

@@ -12,6 +12,13 @@ from data import NameDataset
 from report import create_html_report
 
 
+def convert_bool_tensor(tensor):
+    ones = torch.ones_like(tensor, dtype=torch.float32)
+    minus_ones = -1 * ones
+    converted_tensor = torch.where(tensor, ones, minus_ones)
+    return converted_tensor
+
+
 def eval_model(
     model,
     device: torch.device,
@@ -68,22 +75,19 @@ def eval_model(
             loss = criterion(output1, output2, label)
             total_loss += loss.item()
 
-            score = similarity(output1, output2)
+            pred = convert_bool_tensor(similarity(output1, output2))
 
             # Compute the predictions
-            pred = score < 0.5
             all_labels.extend(label.cpu().numpy())
             all_preds.extend(pred.cpu().numpy().flatten().astype(int))
 
     # Compute the average loss over the entire evaluation dataset
     avg_loss = total_loss / len(eval_data_loader)
 
-    binary_labels = [1 if label == 1 else 0 for label in all_labels]
-
     # Compute precision, recall and F1 score
-    precision = precision_score(binary_labels, all_preds, zero_division=0)
-    recall = recall_score(binary_labels, all_preds)
-    f1 = f1_score(binary_labels, all_preds)
+    precision = precision_score(all_labels, all_preds, zero_division=0)
+    recall = recall_score(all_labels, all_preds)
+    f1 = f1_score(all_labels, all_preds)
 
     if report_filename:
         create_html_report(all_preds, all_labels, report_filename, "Report")
@@ -108,7 +112,7 @@ if __name__ == "__main__":
     model.to(device)
 
     # Define the optimizer and criterion
-    criterion = nn.CosineEmbeddingLoss()
+    criterion = LOSS_FUNCTION(MARGIN)
 
     # Create the DataLoader
     eval_data_loader = DataLoader(
@@ -118,7 +122,12 @@ if __name__ == "__main__":
     )
 
     eval_loss, precision, recall, f1 = eval_model(
-        model, device, eval_data_loader, criterion, SIMILARITY_METRIC()
+        model,
+        device,
+        eval_data_loader,
+        criterion,
+        SIMILARITY_METRIC(0.5),
+        report_filename="report.html",
     )
     print(
         f"Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"

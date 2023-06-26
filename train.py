@@ -8,10 +8,13 @@ from model import create_char_to_int, ContactEncoder
 from eval import eval_model
 from config import *
 from data import NameDataset
+from contrastive_metric import ContrastiveLoss
 
-N_EPOCHS = 15
-TRAIN_BATCH_SIZE = 32
-LEARNING_RATE = 0.1
+N_EPOCHS = 40
+TRAIN_BATCH_SIZE = 16
+LEARNING_RATE = 0.00005
+
+CHECKPOINT_PERIOD = 10
 
 
 def train_model(
@@ -27,7 +30,9 @@ def train_model(
         model.train()
         total_loss = 0.0
 
-        for (name1_tensor, len1), (name2_tensor, len2), label in tqdm(data_loader):
+        for (name1_tensor, len1), (name2_tensor, len2), label in tqdm(
+            data_loader, leave=False
+        ):
             # Move tensors to the device
             name1_tensor = name1_tensor.to(device)
             name2_tensor = name2_tensor.to(device)
@@ -49,11 +54,14 @@ def train_model(
         # Evaluate the model
         avg_train_loss = total_loss / len(data_loader)
         eval_loss, precision, recall, f1 = eval_model(
-            model, device, eval_data_loader, criterion, SIMILARITY_METRIC()
+            model, device, eval_data_loader, criterion, SIMILARITY_METRIC(0.5)
         )
-        print(
-            f"Epoch {epoch}: Avg Train Loss = {avg_train_loss:.4f}; Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
+        tqdm.write(
+            f"Epoch {epoch+1} / {n_epochs}: Avg Train Loss = {avg_train_loss:.4f}; Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
         )
+
+        if epoch % CHECKPOINT_PERIOD == 0 and epoch > 0:
+            torch.save(model.state_dict(), f"{SAVED_MODEL_DIR}/chkpt_{epoch+1}.pth")
 
 
 if __name__ == "__main__":
@@ -73,7 +81,7 @@ if __name__ == "__main__":
 
     # Define the optimizer and criterion
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    criterion = nn.CosineEmbeddingLoss()
+    criterion = LOSS_FUNCTION(margin=MARGIN)
 
     # Create the DataLoader
     data_loader = DataLoader(
