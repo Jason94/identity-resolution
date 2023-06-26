@@ -1,63 +1,30 @@
 import os
 import torch
 from torch import nn, optim
-import pandas as pd
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from model import create_char_to_int, ContactEncoder
+from eval import eval_model
+from config import *
+from data import NameDataset
 
-### ---Hyperparameters
-
-## Training
-N_EPOCHS = 1
-SAVED_MODEL_PATH = "models/model.pth"
-
-
-class NameDataset(Dataset):
-    def __init__(self, csv_file, char_to_int):
-        # Load the dataset
-        self.data = pd.read_csv(csv_file)
-        self.data[
-            ["first_name_1", "last_name_1", "first_name_2", "last_name_2"]
-        ] = self.data[
-            ["first_name_1", "last_name_1", "first_name_2", "last_name_2"]
-        ].astype(
-            str
-        )
-
-        # Initialize the character-to-integer mapping
-        self.char_to_int = char_to_int
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        row = self.data.iloc[idx]
-
-        # Get names and preprocess them
-        name1_tensor, len1 = ContactEncoder.preprocess_names(
-            row["first_name_1"], row["last_name_1"], self.char_to_int
-        )
-        name2_tensor, len2 = ContactEncoder.preprocess_names(
-            row["first_name_2"], row["last_name_2"], self.char_to_int
-        )
-
-        # Get label
-        label = row["label"]
-
-        return (name1_tensor, len1), (name2_tensor, len2), label
+N_EPOCHS = 15
+TRAIN_BATCH_SIZE = 32
+LEARNING_RATE = 0.1
 
 
 def train_model(
     model,
-    data_loader,
+    data_loader: DataLoader,
+    eval_data_loader: DataLoader,
     optimizer,
     criterion,
     device: torch.device = torch.device("cpu"),
     n_epochs=N_EPOCHS,
 ):
     for epoch in range(n_epochs):
+        model.train()
         total_loss = 0.0
 
         for (name1_tensor, len1), (name2_tensor, len2), label in tqdm(data_loader):
@@ -72,15 +39,21 @@ def train_model(
 
             # Calculate loss
             loss = criterion(output1, output2, label.float())
+            total_loss += loss
 
             # Backward pass and optimization
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            total_loss += loss.item()
-
-        print(f"Epoch {epoch+1}/{n_epochs}, Loss: {total_loss/len(data_loader)}")
+        # Evaluate the model
+        avg_train_loss = total_loss / len(data_loader)
+        eval_loss, precision, recall, f1 = eval_model(
+            model, device, eval_data_loader, criterion, SIMILARITY_METRIC()
+        )
+        print(
+            f"Epoch {epoch}: Avg Train Loss = {avg_train_loss:.4f}; Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
+        )
 
 
 if __name__ == "__main__":
@@ -92,19 +65,30 @@ if __name__ == "__main__":
 
     model = ContactEncoder(len(chars))
     if os.path.exists(SAVED_MODEL_PATH):
+        print("Found existing model weights. Starting from there.")
         model.load_state_dict(torch.load(SAVED_MODEL_PATH))
+    else:
+        print("Initializing random weights.")
     model.to(device)
 
     # Define the optimizer and criterion
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = nn.CosineEmbeddingLoss()
 
     # Create the DataLoader
     data_loader = DataLoader(
-        NameDataset("data/training.csv", char_to_int), batch_size=32, shuffle=True
+        NameDataset("data/training.csv", char_to_int),
+        batch_size=TRAIN_BATCH_SIZE,
+        shuffle=True,
+    )
+    eval_data_loader = DataLoader(
+        NameDataset("data/eval.csv", char_to_int),
+        batch_size=TRAIN_BATCH_SIZE,
+        shuffle=True,
     )
 
     # Train the model
-    train_model(model, data_loader, optimizer, criterion, device)
+    train_model(model, data_loader, eval_data_loader, optimizer, criterion, device)
 
+    print("Saving model weights")
     torch.save(model.state_dict(), SAVED_MODEL_PATH)

@@ -65,10 +65,10 @@ def main():
     )
 
     positive_pairs = generate_pairs(matches, 1)
-    negative_pairs = generate_pairs(distinct, 0)
+    negative_pairs = generate_pairs(distinct, -1)
 
     print(f"Found {len(positive_pairs)} matched (positive, 1 annotated) pairs.")
-    print(f"found {len(negative_pairs)} distinct (negative, 0 annotated) pairs.")
+    print(f"found {len(negative_pairs)} distinct (negative, -1 annotated) pairs.")
 
     # Balance the dataset if necessary
     if len(positive_pairs) > len(negative_pairs):
