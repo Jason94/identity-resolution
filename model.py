@@ -8,7 +8,7 @@ class ContactEncoder(nn.Module):
     PAD_CHARACTER = "\0"
 
     def __init__(
-        self, vocab_size, embedding_dim=10, hidden_dim=75, n_layers=2, dropout=0.0
+        self, vocab_size, embedding_dim=50, hidden_dim=100, n_layers=8, dropout=0.0
     ):
         super(ContactEncoder, self).__init__()
 

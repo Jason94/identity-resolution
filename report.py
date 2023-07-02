@@ -13,13 +13,27 @@ def embed_matplotlib_figure(fig):
     return f"<img src='data:image/png;base64,{encoded}'/>"
 
 
-def create_html_report(all_preds, all_labels, file_name, title: str):
+def create_html_report(
+    all_preds,
+    all_labels,
+    all_first1,
+    all_last1,
+    all_first2,
+    all_last2,
+    file_name,
+    title: str,
+):
     report_df = pd.DataFrame()
+    report_df["(1) first_name"] = list(all_first1)
+    report_df["(1) last_name"] = list(all_last1)
+    report_df["(2) first_name"] = list(all_first2)
+    report_df["(2) last_name"] = list(all_last2)
+
     report_df["eval_duplicates"] = all_preds
     report_df["label_duplicates"] = all_labels
 
-    # Create bar graph for correct and incorrect predictions
-    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    # Create bar and pie graph for correct and incorrect predictions
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 
     correct_mask = report_df["label_duplicates"] == report_df["eval_duplicates"]
     incorrect_mask = report_df["label_duplicates"] != report_df["eval_duplicates"]
@@ -27,14 +41,33 @@ def create_html_report(all_preds, all_labels, file_name, title: str):
     correct_counts = report_df.loc[correct_mask, "label_duplicates"].value_counts()
     incorrect_counts = report_df.loc[incorrect_mask, "label_duplicates"].value_counts()
 
-    sns.barplot(x=correct_counts.index, y=correct_counts, ax=axes[0])
-    sns.barplot(x=incorrect_counts.index, y=incorrect_counts, ax=axes[1])
+    # Fill in 0 counts for any missing categories
+    for cat in [-1, 1]:
+        if cat not in correct_counts:
+            correct_counts[cat] = 0
+        if cat not in incorrect_counts:
+            incorrect_counts[cat] = 0
 
-    axes[0].set_title("Labels: Correct Predictions")
-    axes[1].set_title("Labels: Incorrect Predictions")
+    # Bar plots
+    sns.barplot(x=correct_counts.index, y=correct_counts, ax=axes[0, 0])
+    sns.barplot(x=incorrect_counts.index, y=incorrect_counts, ax=axes[0, 1])
 
-    for ax in axes:
-        ax.set_xticklabels(["Not duplicate", "Duplicate"])
+    axes[0, 0].set_title("Labels: Correct Predictions")
+    axes[0, 1].set_title("Labels: Incorrect Predictions")
+
+    for ax in axes[0, :2]:  # Set labels for the first two bar plots
+        ax.set_xticklabels(["Distinct", "Duplicate"])
+
+    # Pie charts
+    # Calculate correct and incorrect counts for duplicates and distincts
+    duplicate_counts = [correct_counts[1], incorrect_counts[1]]
+    distinct_counts = [correct_counts[-1], incorrect_counts[-1]]
+
+    axes[1, 0].pie(duplicate_counts, labels=["Correct", "Incorrect"], autopct="%1.1f%%")
+    axes[1, 0].set_title("Duplicates: Correct vs Incorrect Predictions")
+
+    axes[1, 1].pie(distinct_counts, labels=["Correct", "Incorrect"], autopct="%1.1f%%")
+    axes[1, 1].set_title("Distincts: Correct vs Incorrect Predictions")
 
     # Embed the plot as base64
     distributions_plot_base64 = embed_matplotlib_figure(fig)

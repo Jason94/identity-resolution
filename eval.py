@@ -5,6 +5,7 @@ import sys
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from model import create_char_to_int, ContactEncoder
 from config import *
@@ -58,10 +59,21 @@ def eval_model(
     all_labels = []
     all_preds = []
 
+    all_first1 = []
+    all_last1 = []
+    all_first2 = []
+    all_last2 = []
+
     with torch.no_grad():
-        for batch in eval_data_loader:
+        for batch in tqdm(eval_data_loader, leave=False):
             # Unpack batch and move to the device
-            (name1_tensor, len1), (name2_tensor, len2), label = batch
+            (
+                (name1_tensor, len1),
+                (name2_tensor, len2),
+                label,
+                (first1, last1),
+                (first2, last2),
+            ) = batch
 
             name1_tensor = name1_tensor.to(device)
             name2_tensor = name2_tensor.to(device)
@@ -81,6 +93,11 @@ def eval_model(
             all_labels.extend(label.cpu().numpy())
             all_preds.extend(pred.cpu().numpy().flatten().astype(int))
 
+            all_first1.extend(first1)
+            all_last1.extend(last1)
+            all_first2.extend(first2)
+            all_last2.extend(last2)
+
     # Compute the average loss over the entire evaluation dataset
     avg_loss = total_loss / len(eval_data_loader)
 
@@ -90,7 +107,16 @@ def eval_model(
     f1 = f1_score(all_labels, all_preds)
 
     if report_filename:
-        create_html_report(all_preds, all_labels, report_filename, "Report")
+        create_html_report(
+            all_preds,
+            all_labels,
+            all_first1,
+            all_last1,
+            all_first2,
+            all_last2,
+            report_filename,
+            "Report",
+        )
 
     return avg_loss, precision, recall, f1
 
@@ -116,7 +142,7 @@ if __name__ == "__main__":
 
     # Create the DataLoader
     eval_data_loader = DataLoader(
-        NameDataset("data/eval.csv", char_to_int),
+        NameDataset("data/eval.csv", char_to_int, debug=True),
         batch_size=EVAL_BATCH_SIZE,
         shuffle=True,
     )

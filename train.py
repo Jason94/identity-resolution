@@ -8,13 +8,12 @@ from model import create_char_to_int, ContactEncoder
 from eval import eval_model
 from config import *
 from data import NameDataset
-from contrastive_metric import ContrastiveLoss
 
-N_EPOCHS = 40
-TRAIN_BATCH_SIZE = 16
+N_EPOCHS = 10
+TRAIN_BATCH_SIZE = 1
 LEARNING_RATE = 0.00005
 
-CHECKPOINT_PERIOD = 10
+CHECKPOINT_PERIOD = 5
 
 
 def train_model(
@@ -26,6 +25,7 @@ def train_model(
     device: torch.device = torch.device("cpu"),
     n_epochs=N_EPOCHS,
 ):
+    torch.save(model.state_dict(), f"{SAVED_MODEL_DIR}/chkpt_0.pth")
     for epoch in range(n_epochs):
         model.train()
         total_loss = 0.0
@@ -60,7 +60,7 @@ def train_model(
             f"Epoch {epoch+1} / {n_epochs}: Avg Train Loss = {avg_train_loss:.4f}; Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
         )
 
-        if epoch % CHECKPOINT_PERIOD == 0 and epoch > 0:
+        if (epoch + 1) % CHECKPOINT_PERIOD == 0 and epoch > 0:
             torch.save(model.state_dict(), f"{SAVED_MODEL_DIR}/chkpt_{epoch+1}.pth")
 
 
@@ -90,7 +90,7 @@ if __name__ == "__main__":
         shuffle=True,
     )
     eval_data_loader = DataLoader(
-        NameDataset("data/eval.csv", char_to_int),
+        NameDataset("data/eval.csv", char_to_int, debug=True),
         batch_size=TRAIN_BATCH_SIZE,
         shuffle=True,
     )
