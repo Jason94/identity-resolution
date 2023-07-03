@@ -1,4 +1,7 @@
 torch
+scikit-learn
+matplotlib
+seaborn
 
 ## Test
 expects

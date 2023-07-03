@@ -3,7 +3,6 @@ from typing import List
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
-from torchsummary import summary
 from tqdm import tqdm
 import json
 
