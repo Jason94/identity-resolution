@@ -42,7 +42,7 @@ class ContactEncoder(nn.Module):
 
         # Pack the sequence
         packed = rnn_utils.pack_padded_sequence(
-            embedded, sorted_lengths, batch_first=True, enforce_sorted=False
+            embedded, sorted_lengths, batch_first=True, enforce_sorted=True
         )
 
         # Pass embeddings through GRU
@@ -52,12 +52,16 @@ class ContactEncoder(nn.Module):
         outputs, _ = rnn_utils.pad_packed_sequence(packed_outputs, batch_first=True)
 
         # Take the output from the final time step
-        out = outputs[range(outputs.shape[0]), lengths - 1, :]
+        out = outputs[range(outputs.shape[0]), sorted_lengths - 1, :]
 
         # Pass through Fully connected layer
         embedding = self.fc(out)
 
-        return embedding
+        # Unsort the output embeddings
+        _, unsorted_indices = torch.sort(sorted_indices)
+        unsorted_embedding = embedding[unsorted_indices]
+
+        return unsorted_embedding
 
     @staticmethod
     def preprocess_names(first_name, last_name, char_to_int, max_len=MAX_INPUT_LENGTH):

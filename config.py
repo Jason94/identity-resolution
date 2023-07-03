@@ -13,7 +13,7 @@ MAX_INPUT_LENGTH = 50
 ## Training
 SAVED_MODEL_DIR = "models/"
 SAVED_MODEL_PATH = "models/model.pth"
-EVAL_BATCH_SIZE = 1
+EVAL_BATCH_SIZE = 2
 
 ## Behavior
 # SIMILARITY_METRIC = nn.CosineSimilarity

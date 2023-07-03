@@ -90,13 +90,16 @@ def eval_model(
             pred = convert_bool_tensor(similarity(output1, output2))
 
             # Compute the predictions
-            all_labels.extend(label.cpu().numpy())
-            all_preds.extend(pred.cpu().numpy().flatten().astype(int))
+            all_labels.append(label.cpu())
+            all_preds.append(pred.cpu())
 
             all_first1.extend(first1)
             all_last1.extend(last1)
             all_first2.extend(first2)
             all_last2.extend(last2)
+
+    all_labels = torch.cat(all_labels).numpy()
+    all_preds = torch.cat(all_preds).numpy()
 
     # Compute the average loss over the entire evaluation dataset
     avg_loss = total_loss / len(eval_data_loader)
@@ -130,7 +133,7 @@ if __name__ == "__main__":
 
     model = ContactEncoder(len(chars))
     if os.path.exists(SAVED_MODEL_PATH):
-        print("Found existing model weights. Starting from there.")
+        print("Found existing model weights.")
         model.load_state_dict(torch.load(SAVED_MODEL_PATH))
     else:
         print("No model found. Exiting.")

@@ -1,4 +1,5 @@
 import os
+from typing import List
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
@@ -11,14 +12,14 @@ from eval import eval_model
 from config import *
 from data import NameDataset
 
-N_EPOCHS = 10
-TRAIN_BATCH_SIZE = 1
+N_EPOCHS = 15
+TRAIN_BATCH_SIZE = 32
 LEARNING_RATE = 0.00005
 
 CHECKPOINT_PERIOD = 5
 
 
-def get_model_config(model, input_size: int):
+def get_model_config(model):
     config = {
         "vocab_size": model.embedding.num_embeddings,
         "embedding_dim": model.embedding.embedding_dim,
@@ -27,9 +28,9 @@ def get_model_config(model, input_size: int):
         "fc_out_features": model.fc.out_features,
         "dropout": model.gru.dropout,
     }
-    with torch.no_grad():  # No need to track gradients here
-        model_summary = summary(model, input_size)
-    config["model_summary"] = str(model_summary)
+    # with torch.no_grad():  # No need to track gradients here
+    # model_summary = summary(model)
+    config["model_summary"] = ""  # str(model_summary)
     return config
 
 
@@ -56,7 +57,7 @@ def get_eval_config(eval_loss, precision, recall, f1):
 
 
 def save_configs(epoch, model, optimizer, criterion, eval_loss, precision, recall, f1):
-    model_config = get_model_config(model, MAX_INPUT_LENGTH)
+    model_config = get_model_config(model)
     training_config = get_training_config(optimizer, criterion)
     eval_config = get_eval_config(eval_loss, precision, recall, f1)
     with open(f"{SAVED_MODEL_DIR}/config_chkpt_{epoch}.json", "w") as f:
@@ -98,6 +99,8 @@ def train_model(
             name2_tensor = name2_tensor.to(device)
             label = label.to(device)
 
+            optimizer.zero_grad()
+
             # Forward pass through the model
             output1 = model(name1_tensor, len1)
             output2 = model(name2_tensor, len2)
@@ -107,7 +110,6 @@ def train_model(
             total_loss += loss
 
             # Backward pass and optimization
-            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 

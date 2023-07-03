@@ -162,8 +162,11 @@ cython_debug/
 # We don't want to track PII in the training data into GitHub
 data/*.csv
 
-# We don't want to check the model weights into GitHub
-**.pth
+# We don't want to check the model data into GitHub
+models/*
 
 # Don't commit reports
 *.html
+
+# don't save the repo summary
+repository_summary.txt
