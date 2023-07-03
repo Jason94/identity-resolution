@@ -27,21 +27,6 @@ def read_data(filename):
     return data
 
 
-# Generate name pairs and corresponding labels
-def generate_pairs(data, label):
-    pairs = []
-    for row in data:
-        tools = [
-            key.split("_")[0] for key in row.keys() if "first_name" in key and row[key]
-        ]
-        for i in range(len(tools) - 1):
-            for j in range(i + 1, len(tools)):
-                set_1 = (row[tools[i] + "_first_name"], row[tools[i] + "_last_name"])
-                set_2 = (row[tools[j] + "_first_name"], row[tools[j] + "_last_name"])
-                pairs.append((set_1, set_2, label))
-    return pairs
-
-
 # Write data to CSV file
 def write_data(filename, pairs):
     with open(filename, "w", newline="") as file:
@@ -50,33 +35,31 @@ def write_data(filename, pairs):
             ["first_name_1", "last_name_1", "first_name_2", "last_name_2", "label"]
         )
         for pair in pairs:
-            writer.writerow([pair[0][0], pair[0][1], pair[1][0], pair[1][1], pair[2]])
+            writer.writerow(
+                [
+                    pair["first_name1"],
+                    pair["last_name1"],
+                    pair["first_name2"],
+                    pair["last_name2"],
+                    pair["label"],
+                ]
+            )
 
 
 def main():
-    matches = read_data("data/matches.csv")
-    distinct = read_data("data/distinct.csv")
+    duplicates = read_data("data/duplicates.csv")
+    distincts = read_data("data/distincts.csv")
 
-    print(
-        f"Found {len(matches)} match rows. (Note each row might contain multiple pairs.)"
-    )
-    print(
-        f"Found {len(distinct)} distinct rows. (Note each row might contain multiple pairs.)"
-    )
-
-    positive_pairs = generate_pairs(matches, 1)
-    negative_pairs = generate_pairs(distinct, -1)
-
-    print(f"Found {len(positive_pairs)} matched (positive, 1 annotated) pairs.")
-    print(f"found {len(negative_pairs)} distinct (negative, -1 annotated) pairs.")
+    print(f"Found {len(duplicates)} duplicate rows.")
+    print(f"Found {len(distincts)} distinct rows.")
 
     # Balance the dataset if necessary
-    if len(positive_pairs) > len(negative_pairs):
-        positive_pairs = random.sample(positive_pairs, len(negative_pairs))
-    elif len(negative_pairs) > len(positive_pairs):
-        negative_pairs = random.sample(negative_pairs, len(positive_pairs))
+    if len(duplicates) > len(distincts):
+        duplicates = random.sample(duplicates, len(distincts))
+    elif len(distincts) > len(duplicates):
+        distincts = random.sample(distincts, len(duplicates))
 
-    all_pairs = positive_pairs + negative_pairs
+    all_pairs = duplicates + distincts
     random.shuffle(all_pairs)
 
     # Split the data into training and evaluation sets

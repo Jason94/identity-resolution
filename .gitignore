@@ -160,7 +160,7 @@ cython_debug/
 #.idea/
 
 # We don't want to track PII in the training data into GitHub
-data/*.csv
+data/**/*.csv
 
 # We don't want to check the model data into GitHub
 models/*
