@@ -2,12 +2,18 @@ import torch.nn as nn
 
 from contrastive_metric import ContrastiveLoss, is_duplicate
 
+DUPLICATE_CLASS = 1
+DISTINCT_CLASS = -1
+
 ### ---Hyperparameters
+
+## Model
+MAX_INPUT_LENGTH = 50
 
 ## Training
 SAVED_MODEL_DIR = "models/"
 SAVED_MODEL_PATH = "models/model.pth"
-EVAL_BATCH_SIZE = 4
+EVAL_BATCH_SIZE = 1
 
 ## Behavior
 # SIMILARITY_METRIC = nn.CosineSimilarity

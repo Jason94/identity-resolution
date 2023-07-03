@@ -3,6 +3,8 @@ from torch import nn
 import torch.nn.utils.rnn as rnn_utils
 import string
 
+from config import MAX_INPUT_LENGTH
+
 
 class ContactEncoder(nn.Module):
     PAD_CHARACTER = "\0"
@@ -58,7 +60,7 @@ class ContactEncoder(nn.Module):
         return embedding
 
     @staticmethod
-    def preprocess_names(first_name, last_name, char_to_int, max_len=50):
+    def preprocess_names(first_name, last_name, char_to_int, max_len=MAX_INPUT_LENGTH):
         # Concatenate first name and last name
         try:
             name = first_name + " " + last_name

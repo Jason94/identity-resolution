@@ -76,8 +76,8 @@ class ContrastiveLoss(nn.Module):
             self.margin - distances
         ).float()
 
-        # Calculate the total loss by adding the two terms and multiplying by 0.5 (for convenience)
-        losses = 0.5 * (same_class_loss + distinct_class_loss)
+        # Calculate the total loss by adding the two terms
+        losses = same_class_loss + distinct_class_loss
 
         # Return the mean of the losses.
         return losses.mean()
