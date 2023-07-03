@@ -1,19 +1,49 @@
-with distincts as (
+with ea_emails AS (
+    SELECT 
+        c.vanid,
+        e.email
+    FROM 
+        indivisible_ea.contacts_iv c
+    JOIN 
+    (
+        SELECT 
+            ce.email, 
+            ce.vanid, 
+            ce.datecreated, 
+            ROW_NUMBER() OVER(PARTITION BY ce.vanid ORDER BY ce.datecreated DESC) AS rn
+        FROM 
+            indivisible_ea.contactsemails_iv ce
+        LEFT JOIN 
+            indivisible_ea.emailsubscriptions_iv es
+        ON 
+            LOWER(ce.email) = LOWER(es.email)
+        WHERE 
+            es.dateunsubscribed IS NULL
+    ) e
+    ON 
+        c.vanid = e.vanid
+    WHERE 
+        e.rn = 1
+), distincts as (
     WITH ea_c AS (
         SELECT 
             x.tmc_person_id,
             LOWER(e.firstname) AS ea_first_name, 
             LOWER(e.lastname) AS ea_last_name,
+            LOWER(ea_emails.email) AS ea_email,
             ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rownum
         FROM indivisible_infrastructure.xwalk x
         INNER JOIN indivisible_ea.contacts_iv e
             ON e.vanid = x.everyaction_id
+        LEFT JOIN ea_emails
+            ON ea_emails.vanid = e.vanid
     ),
     ak_u AS (
         SELECT 
             x.tmc_person_id,
             LOWER(a.first_name) AS ak_first_name, 
             LOWER(a.last_name) AS ak_last_name,
+            LOWER(a.email) AS ak_email,
             ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rownum
         FROM indivisible_infrastructure.xwalk x
         INNER JOIN indivisible_ak.core_user a
@@ -22,8 +52,10 @@ with distincts as (
     SELECT 
         ea_c.ea_first_name as first_name1, 
         ea_c.ea_last_name as last_name1,
+        ea_c.ea_email as email1,
         ak_u.ak_first_name as first_name2, 
-        ak_u.ak_last_name as last_name2
+        ak_u.ak_last_name as last_name2,
+        ak_u.ak_email as email2
     FROM ea_c
     INNER JOIN ak_u
         ON ea_c.rownum = ak_u.rownum
