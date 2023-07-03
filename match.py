@@ -33,8 +33,8 @@ if __name__ == "__main__":
 
     print(f"Matching '{first1} {last1}' & '{first2} {last2}'")
 
-    tensor1, len1 = ContactEncoder.preprocess_names(first1, last1, char_to_int)
-    tensor2, len2 = ContactEncoder.preprocess_names(first2, last2, char_to_int)
+    tensor1, len1 = NameDataset.preprocess_names(first1, last1, char_to_int)
+    tensor2, len2 = NameDataset.preprocess_names(first2, last2, char_to_int)
 
     name_tensor = torch.stack([tensor1, tensor2]).to(device)
     len_tensor = torch.tensor([len1, len2])

@@ -9,11 +9,12 @@ DISTINCT_CLASS = -1
 
 ## Model
 MAX_INPUT_LENGTH = 50
+MAX_EMAIL_LENGTH = 30
 
 ## Training
 SAVED_MODEL_DIR = "models/"
 SAVED_MODEL_PATH = "models/model.pth"
-EVAL_BATCH_SIZE = 2
+EVAL_BATCH_SIZE = 32
 
 ## Behavior
 # SIMILARITY_METRIC = nn.CosineSimilarity

@@ -68,20 +68,22 @@ def eval_model(
         for batch in tqdm(eval_data_loader, leave=False):
             # Unpack batch and move to the device
             (
-                (name1_tensor, len1),
-                (name2_tensor, len2),
+                (name1_tensor, len1, email1_tensor, len_email1),
+                (name2_tensor, len2, email2_tensor, len_email2),
                 label,
-                (first1, last1),
-                (first2, last2),
+                (first1, last1, email1),
+                (first2, last2, email2),
             ) = batch
 
             name1_tensor = name1_tensor.to(device)
             name2_tensor = name2_tensor.to(device)
+            email1_tensor = email1_tensor.to(device)
+            email2_tensor = email2_tensor.to(device)
             label = label.to(device)
 
             # Forward pass through the model
-            output1 = model(name1_tensor, len1)
-            output2 = model(name2_tensor, len2)
+            output1 = model(name1_tensor, len1, email1_tensor, len_email1)
+            output2 = model(name2_tensor, len2, email2_tensor, len_email2)
 
             # Compute the loss
             loss = criterion(output1, output2, label)

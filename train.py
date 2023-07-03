@@ -11,11 +11,11 @@ from eval import eval_model
 from config import *
 from data import NameDataset
 
-N_EPOCHS = 15
+N_EPOCHS = 10
 TRAIN_BATCH_SIZE = 32
 LEARNING_RATE = 0.00005
 
-CHECKPOINT_PERIOD = 5
+CHECKPOINT_PERIOD = 2
 
 
 def get_model_config(model):
@@ -85,24 +85,31 @@ def train_model(
     )
     torch.save(model.state_dict(), f"{SAVED_MODEL_DIR}/chkpt_0.pth")
     save_configs(0, model, optimizer, criterion, eval_loss, precision, recall, f1)
+    print(
+        f"Preliminary: Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
+    )
 
     for epoch in range(n_epochs):
         model.train()
         total_loss = 0.0
 
-        for (name1_tensor, len1), (name2_tensor, len2), label in tqdm(
-            data_loader, leave=False
-        ):
+        for (
+            (name1_tensor, len1, email1_tensor, len_email1),
+            (name2_tensor, len2, email2_tensor, len_email2),
+            label,
+        ) in tqdm(data_loader, leave=False):
             # Move tensors to the device
             name1_tensor = name1_tensor.to(device)
             name2_tensor = name2_tensor.to(device)
+            email1_tensor = email1_tensor.to(device)
+            email2_tensor = email2_tensor.to(device)
             label = label.to(device)
 
             optimizer.zero_grad()
 
             # Forward pass through the model
-            output1 = model(name1_tensor, len1)
-            output2 = model(name2_tensor, len2)
+            output1 = model(name1_tensor, len1, email1_tensor, len_email1)
+            output2 = model(name2_tensor, len2, email2_tensor, len_email2)
 
             # Calculate loss
             loss = criterion(output1, output2, label.float())
