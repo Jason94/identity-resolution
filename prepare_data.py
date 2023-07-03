@@ -32,15 +32,25 @@ def write_data(filename, pairs):
     with open(filename, "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(
-            ["first_name_1", "last_name_1", "first_name_2", "last_name_2", "label"]
+            [
+                "first_name_1",
+                "last_name_1",
+                "email1",
+                "first_name_2",
+                "last_name_2",
+                "email2",
+                "label",
+            ]
         )
         for pair in pairs:
             writer.writerow(
                 [
                     pair["first_name1"],
                     pair["last_name1"],
+                    pair["email1"],
                     pair["first_name2"],
                     pair["last_name2"],
+                    pair["email2"],
                     pair["label"],
                 ]
             )
