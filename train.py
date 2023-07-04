@@ -3,6 +3,7 @@ from typing import List
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
+from torchinfo import summary
 from tqdm import tqdm
 import json
 
@@ -16,21 +17,6 @@ TRAIN_BATCH_SIZE = 8
 LEARNING_RATE = 0.00005
 
 CHECKPOINT_PERIOD = 5
-
-
-def get_model_config(model):
-    config = {
-        "vocab_size": model.embedding.num_embeddings,
-        "embedding_dim": model.embedding.embedding_dim,
-        # "hidden_dim": model.hidden_dim,
-        # "n_layers": model.n_layers,
-        # "fc_out_features": model.fc.out_features,
-        # "dropout": model.gru.dropout,
-    }
-    # with torch.no_grad():  # No need to track gradients here
-    # model_summary = summary(model)
-    config["model_summary"] = ""  # str(model_summary)
-    return config
 
 
 def get_training_config(optimizer, criterion):
@@ -55,8 +41,11 @@ def get_eval_config(eval_loss, precision, recall, f1):
     return config
 
 
-def save_configs(epoch, model, optimizer, criterion, eval_loss, precision, recall, f1):
-    model_config = get_model_config(model)
+def save_configs(
+    epoch, model, input_data, optimizer, criterion, eval_loss, precision, recall, f1
+):
+    # model_config = summary(model, input_data=input_data)
+    model_config = ""
     training_config = get_training_config(optimizer, criterion)
     eval_config = get_eval_config(eval_loss, precision, recall, f1)
     with open(f"{SAVED_MODEL_DIR}/config_chkpt_{epoch}.json", "w") as f:
@@ -84,7 +73,17 @@ def train_model(
         model, device, eval_data_loader, criterion, SIMILARITY_METRIC(0.5)
     )
     torch.save(model.state_dict(), f"{SAVED_MODEL_DIR}/chkpt_0.pth")
-    save_configs(0, model, optimizer, criterion, eval_loss, precision, recall, f1)
+    save_configs(
+        0,
+        model,
+        eval_data_loader.dataset[0],
+        optimizer,
+        criterion,
+        eval_loss,
+        precision,
+        recall,
+        f1,
+    )
     print(
         f"Preliminary: Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
     )
@@ -131,7 +130,15 @@ def train_model(
         if (epoch + 1) % CHECKPOINT_PERIOD == 0:
             torch.save(model.state_dict(), f"{SAVED_MODEL_DIR}/chkpt_{epoch+1}.pth")
             save_configs(
-                epoch + 1, model, optimizer, criterion, eval_loss, precision, recall, f1
+                epoch + 1,
+                model,
+                eval_data_loader.dataset[0],
+                optimizer,
+                criterion,
+                eval_loss,
+                precision,
+                recall,
+                f1,
             )
 
 

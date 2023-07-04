@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torchvision.ops import MLP
 import string
 import math
 
@@ -17,6 +18,7 @@ class ContactEncoder(nn.Module):
         attn_dim=180,
         norm_eps=1e-6,
         output_embedding_dim=60,
+        output_mlp_layers=6,
         dropout=0.0,
     ):
         super(ContactEncoder, self).__init__()
@@ -51,7 +53,15 @@ class ContactEncoder(nn.Module):
 
         # -- Final Output Processing
         self.output_embedding_dim = output_embedding_dim
-        self.fc_output = nn.Linear(attn_dim, output_embedding_dim)
+        self.fc_output = nn.Sequential(
+            MLP(
+                attn_dim,
+                [attn_dim] * output_mlp_layers,
+                norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
+                # activation_layer=lambda: nn.Tanh(),
+            ),
+            nn.Linear(attn_dim, output_embedding_dim),
+        )
 
     @staticmethod
     def init_positional_encoding(max_sequence_length, embedding_dimension):
@@ -121,7 +131,8 @@ class ContactEncoder(nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    def forward(self, name_tensor, lengths, email_tensor, email_lengths):
+    # Use *xargs as a hack to avoid torch-info bug
+    def forward(self, name_tensor, lengths, email_tensor, email_lengths, *xargs):
         # Generate the initial embeddings
         embedding_name = self.embedding(name_tensor)
         embedding_email = self.embedding(email_tensor)
