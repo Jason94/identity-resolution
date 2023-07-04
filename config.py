@@ -14,7 +14,7 @@ MAX_EMAIL_LENGTH = 35
 ## Training
 SAVED_MODEL_DIR = "models/"
 SAVED_MODEL_PATH = "models/model.pth"
-EVAL_BATCH_SIZE = 4
+EVAL_BATCH_SIZE = 8
 
 ## Behavior
 # SIMILARITY_METRIC = nn.CosineSimilarity

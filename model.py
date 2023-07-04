@@ -11,9 +11,10 @@ class ContactEncoder(nn.Module):
         self,
         vocab_size,
         embedding_dim=60,
-        output_embedding_dim=60,
         n_heads_attn=4,
+        attn_dim=180,
         norm_eps=1e-6,
+        output_embedding_dim=60,
         dropout=0.0,
     ):
         super(ContactEncoder, self).__init__()
@@ -23,23 +24,27 @@ class ContactEncoder(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
 
         # --- Initial Attention Layer
-        self.output_embedding_dim = output_embedding_dim
-        self.n_heads_attn = n_heads_attn
+        self.fc_expand_embedding = nn.Linear(embedding_dim, attn_dim)
 
+        self.n_heads_attn = n_heads_attn
         self.multihead_attn = nn.MultiheadAttention(
-            output_embedding_dim, n_heads_attn, batch_first=True
+            attn_dim, n_heads_attn, batch_first=True
         )
 
-        self.norm_attn = nn.LayerNorm(output_embedding_dim, eps=norm_eps)
+        self.norm_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
+
+        # -- Attention Processing
+        self.fc_proc_attn = nn.Sequential(
+            nn.Linear(attn_dim, attn_dim),
+            nn.ReLU(),
+            nn.Linear(attn_dim, attn_dim),
+        )
+
+        self.norm_proc_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
 
         # -- Final Output Processing
-        self.fc_final = nn.Sequential(
-            nn.Linear(output_embedding_dim, output_embedding_dim),
-            nn.ReLU(),
-            nn.Linear(output_embedding_dim, output_embedding_dim),
-        )
-
-        self.norm_output = nn.LayerNorm(output_embedding_dim, eps=norm_eps)
+        self.output_embedding_dim = output_embedding_dim
+        self.fc_output = nn.Linear(attn_dim, output_embedding_dim)
 
     @staticmethod
     def create_attn_mask(lengths, max_len):
@@ -54,15 +59,18 @@ class ContactEncoder(nn.Module):
         embedding_name = self.embedding(name_tensor)
         embedding_email = self.embedding(email_tensor)
 
+        expanded_name = self.fc_expand_embedding(embedding_name)
+        expanded_email = self.fc_expand_embedding(embedding_email)
+
         # Concat field embeddings along the sequence dimension, to prepare for the attention
-        combined_field_embeddings = torch.cat([embedding_name, embedding_email], dim=1)
+        combined_field_embeddings = torch.cat([expanded_name, expanded_email], dim=1)
 
         # Create the attention mask
-        name_attn_mask = self.create_attn_mask(lengths, embedding_name.size(1)).to(
+        name_attn_mask = self.create_attn_mask(lengths, expanded_name.size(1)).to(
             self.device()
         )
         email_attn_mask = self.create_attn_mask(
-            email_lengths, embedding_email.size(1)
+            email_lengths, expanded_email.size(1)
         ).to(self.device())
         attn_mask = torch.cat([name_attn_mask, email_attn_mask], dim=1)
 
@@ -77,9 +85,9 @@ class ContactEncoder(nn.Module):
         norm_attn_output = self.norm_attn(attn_output + combined_field_embeddings)
 
         # Pass through the feed forward network
-        ff_output = self.fc_final(norm_attn_output)
+        ff_output = self.fc_proc_attn(norm_attn_output)
 
-        norm_output = self.norm_output(ff_output + norm_attn_output)
+        norm_output = self.norm_proc_attn(ff_output + norm_attn_output)
 
         # Produce a weighted sum of the character-wise embeddings to represent the input
         final_attn_weights = attn_output_weights[:, -1, :]
@@ -87,7 +95,10 @@ class ContactEncoder(nn.Module):
             dim=1
         )
 
-        return weighted_sum_output
+        # Reshape the internal attented embedding to the output embedding
+        output_embeddings = self.fc_output(weighted_sum_output)
+
+        return output_embeddings
 
 
 def create_char_to_int():
