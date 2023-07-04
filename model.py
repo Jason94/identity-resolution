@@ -1,7 +1,9 @@
 import torch
 from torch import nn
-import torch.nn.utils.rnn as rnn_utils
 import string
+import math
+
+from config import MAX_NAME_LENGTH, MAX_EMAIL_LENGTH
 
 
 class ContactEncoder(nn.Module):
@@ -23,8 +25,13 @@ class ContactEncoder(nn.Module):
         self.embedding_dim = embedding_dim
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
 
-        # --- Initial Attention Layer
+        # --- Attention Layer
+        self.attn_dim = attn_dim
         self.fc_expand_embedding = nn.Linear(embedding_dim, attn_dim)
+
+        self.positional_encoding = self.init_positional_encoding(
+            MAX_NAME_LENGTH + MAX_EMAIL_LENGTH, attn_dim
+        )
 
         self.n_heads_attn = n_heads_attn
         self.multihead_attn = nn.MultiheadAttention(
@@ -45,6 +52,66 @@ class ContactEncoder(nn.Module):
         # -- Final Output Processing
         self.output_embedding_dim = output_embedding_dim
         self.fc_output = nn.Linear(attn_dim, output_embedding_dim)
+
+    @staticmethod
+    def init_positional_encoding(max_sequence_length, embedding_dimension):
+        """
+        Function to initialize positional encoding tensor.
+
+        In the positional encoding function, we're essentially encoding each position of the sequence
+        (from 0 to the max sequence length) as a unique vector. We do this using sine and cosine
+        functions of different frequencies. The idea here is to create unique positional vectors that
+        the model can learn to use to pay different levels of "attention" to the input data based on
+        their positions in the sequence.
+
+        We alternate between using sine and cosine to ensure that the positional encoding for position
+        p and position p + k can be represented as a linear function of the encoding at position p.
+        This characteristic helps the model easily learn relative positions, which is particularly
+        important when dealing with sequences.
+
+        The reason we divide by the log of 10000 is to create a range of frequencies, so we can
+        capture positional information at different scales. This scaling factor ensures that the
+        positional encoding for close positions don't change dramatically, making the positional
+        information easier to learn for the model.
+
+        Args:
+            max_sequence_length: The maximum length of sequences.
+            embedding_dimension: The dimension of the embeddings.
+
+        Returns:
+            pe: Positional encoding tensor of shape (1, max_sequence_length, embedding_dimension).
+        """
+
+        # Create an empty tensor for positional encoding
+        positional_encoding = torch.zeros(max_sequence_length, embedding_dimension)
+
+        # Create a tensor that represents position indices from 0 to max_sequence_length
+        position_indices = torch.arange(max_sequence_length).unsqueeze(1).float()
+
+        # Create a tensor that includes the divisors for the sinusoidal functions
+        # It includes values for even indices from 0 to embedding_dimension
+        # Dividing by the log of 10000 creates a range of frequencies to capture positional information at different scales
+        divisors = torch.exp(
+            -(math.log(10000.0))
+            * torch.arange(0, embedding_dimension, 2).float()
+            / embedding_dimension
+        )
+
+        # For even indices, use the sine function
+        positional_encoding[:, 0::2] = torch.sin(position_indices * divisors)
+
+        # For odd indices, use the cosine function
+        positional_encoding[:, 1::2] = torch.cos(position_indices * divisors)
+
+        # Add an extra dimension for the batch size
+        positional_encoding = positional_encoding.unsqueeze(0)
+
+        # Wrap positional_encoding in a PyTorch Parameter object
+        # This object can be included in a model's list of parameters by assigning it as an attribute of a Module
+        # The requires_grad=False argument means that this tensor doesn't need to be updated during backpropagation
+        positional_encoding = nn.Parameter(positional_encoding, requires_grad=False)
+
+        return positional_encoding
 
     @staticmethod
     def create_attn_mask(lengths, max_len):
@@ -73,6 +140,16 @@ class ContactEncoder(nn.Module):
             email_lengths, expanded_email.size(1)
         ).to(self.device())
         attn_mask = torch.cat([name_attn_mask, email_attn_mask], dim=1)
+
+        # Add the positional information
+        batch_size, _, _ = combined_field_embeddings.shape
+        pad_mask = attn_mask.unsqueeze(-1).expand(-1, -1, self.attn_dim)
+        positional_encodings_masked = self.positional_encoding.repeat(batch_size, 1, 1)
+        positional_encodings_masked[pad_mask] = 0
+
+        combined_field_embeddings = (
+            combined_field_embeddings + positional_encodings_masked
+        )
 
         # Pass through the multihead attention
         attn_output, attn_output_weights = self.multihead_attn(

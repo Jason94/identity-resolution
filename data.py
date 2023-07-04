@@ -2,14 +2,14 @@ import torch
 from torch.utils.data import Dataset
 import pandas as pd
 
-from config import MAX_INPUT_LENGTH, MAX_EMAIL_LENGTH
+from config import MAX_NAME_LENGTH, MAX_EMAIL_LENGTH
 from model import ContactEncoder
 
 
 class NameDataset(Dataset):
     @staticmethod
     def preprocess_names(
-        first_name: str, last_name: str, char_to_int, max_len=MAX_INPUT_LENGTH
+        first_name: str, last_name: str, char_to_int, max_len=MAX_NAME_LENGTH
     ):
         # Concatenate first name and last name
         try:

@@ -8,7 +8,7 @@ DISTINCT_CLASS = -1
 ### ---Hyperparameters
 
 ## Model
-MAX_INPUT_LENGTH = 50
+MAX_NAME_LENGTH = 50
 MAX_EMAIL_LENGTH = 35
 
 ## Training

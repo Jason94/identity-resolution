@@ -28,20 +28,28 @@ if __name__ == "__main__":
 
     first1 = sys.argv[1].lower()
     last1 = sys.argv[2].lower()
-    first2 = sys.argv[3].lower()
-    last2 = sys.argv[4].lower()
+    email1 = sys.argv[3].lower()
+    first2 = sys.argv[4].lower()
+    last2 = sys.argv[5].lower()
+    email2 = sys.argv[6].lower()
 
-    print(f"Matching '{first1} {last1}' & '{first2} {last2}'")
+    print(f"Matching '{first1} {last1} - {email1}' & '{first2} {last2} - {email2}'")
 
     tensor1, len1 = NameDataset.preprocess_names(first1, last1, char_to_int)
     tensor2, len2 = NameDataset.preprocess_names(first2, last2, char_to_int)
 
+    tensor_email1, email_len1 = NameDataset.preprocess_emails(email1, char_to_int)
+    tensor_email2, email_len2 = NameDataset.preprocess_emails(email2, char_to_int)
+
     name_tensor = torch.stack([tensor1, tensor2]).to(device)
     len_tensor = torch.tensor([len1, len2])
 
+    email_tensor = torch.stack([tensor_email1, tensor_email2]).to(device)
+    email_len_tensor = torch.tensor([email_len1, email_len2])
+
     print(name_tensor)
 
-    embeddings = model.forward(name_tensor, len_tensor)
+    embeddings = model.forward(name_tensor, len_tensor, email_tensor, email_len_tensor)
 
     print(embeddings)
 
