@@ -12,10 +12,10 @@ from config import *
 from data import NameDataset
 
 N_EPOCHS = 10
-TRAIN_BATCH_SIZE = 1
+TRAIN_BATCH_SIZE = 8
 LEARNING_RATE = 0.00005
 
-CHECKPOINT_PERIOD = 2
+CHECKPOINT_PERIOD = 5
 
 
 def get_model_config(model):

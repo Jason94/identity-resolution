@@ -155,7 +155,7 @@ if __name__ == "__main__":
     eval_data_loader = DataLoader(
         NameDataset("data/eval.csv", char_to_int, debug=True),
         batch_size=EVAL_BATCH_SIZE,
-        shuffle=True,
+        shuffle=False,
     )
 
     eval_loss, precision, recall, f1 = eval_model(
