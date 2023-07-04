@@ -8,7 +8,9 @@ from model import ContactEncoder
 
 class NameDataset(Dataset):
     @staticmethod
-    def preprocess_names(first_name, last_name, char_to_int, max_len=MAX_INPUT_LENGTH):
+    def preprocess_names(
+        first_name: str, last_name: str, char_to_int, max_len=MAX_INPUT_LENGTH
+    ):
         # Concatenate first name and last name
         try:
             name = first_name + " " + last_name
@@ -31,15 +33,15 @@ class NameDataset(Dataset):
         return name_tensor, non_pad_count
 
     @staticmethod
-    def preprocess_emails(email, char_to_int, max_len=MAX_EMAIL_LENGTH):
+    def preprocess_emails(email: str, char_to_int, max_len=MAX_EMAIL_LENGTH):
+        # Count the number of non-pad characters
+        non_pad_count = len(email)
+
         # Truncate or pad emali to max_len
         email = email[:max_len].ljust(max_len, ContactEncoder.PAD_CHARACTER)
 
         # Convert email to tensor of character indices
         email_tensor = torch.tensor([char_to_int[char] for char in email])
-
-        # Count the number of non-pad characters
-        non_pad_count = len(email)
 
         return email_tensor, non_pad_count
 

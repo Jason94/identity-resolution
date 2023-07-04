@@ -61,8 +61,10 @@ def eval_model(
 
     all_first1 = []
     all_last1 = []
+    all_email1 = []
     all_first2 = []
     all_last2 = []
+    all_email2 = []
 
     with torch.no_grad():
         for batch in tqdm(eval_data_loader, leave=False):
@@ -97,8 +99,10 @@ def eval_model(
 
             all_first1.extend(first1)
             all_last1.extend(last1)
+            all_email1.extend(email1)
             all_first2.extend(first2)
             all_last2.extend(last2)
+            all_email2.extend(email2)
 
     all_labels = torch.cat(all_labels).numpy()
     all_preds = torch.cat(all_preds).numpy()
@@ -117,8 +121,10 @@ def eval_model(
             all_labels,
             all_first1,
             all_last1,
+            all_email1,
             all_first2,
             all_last2,
+            all_email2,
             report_filename,
             "Report",
         )

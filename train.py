@@ -12,7 +12,7 @@ from config import *
 from data import NameDataset
 
 N_EPOCHS = 10
-TRAIN_BATCH_SIZE = 32
+TRAIN_BATCH_SIZE = 1
 LEARNING_RATE = 0.00005
 
 CHECKPOINT_PERIOD = 2
@@ -22,10 +22,10 @@ def get_model_config(model):
     config = {
         "vocab_size": model.embedding.num_embeddings,
         "embedding_dim": model.embedding.embedding_dim,
-        "hidden_dim": model.hidden_dim,
-        "n_layers": model.n_layers,
-        "fc_out_features": model.fc.out_features,
-        "dropout": model.gru.dropout,
+        # "hidden_dim": model.hidden_dim,
+        # "n_layers": model.n_layers,
+        # "fc_out_features": model.fc.out_features,
+        # "dropout": model.gru.dropout,
     }
     # with torch.no_grad():  # No need to track gradients here
     # model_summary = summary(model)
