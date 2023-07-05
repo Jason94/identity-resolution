@@ -133,6 +133,7 @@ def eval_model(
 
 
 if __name__ == "__main__":
+    full_path = os.path.join(SAVED_MODEL_DIR, f"{SAVED_MODEL_PATH}.pth")
     char_to_int, chars = create_char_to_int()
 
     # Create model instance
@@ -140,9 +141,9 @@ if __name__ == "__main__":
     print(f"Found device {device}")
 
     model = ContactEncoder(len(chars))
-    if os.path.exists(SAVED_MODEL_PATH):
+    if os.path.exists(full_path):
         print("Found existing model weights.")
-        model.load_state_dict(torch.load(SAVED_MODEL_PATH))
+        model.load_state_dict(torch.load(full_path))
     else:
         print("No model found. Exiting.")
         sys.exit()

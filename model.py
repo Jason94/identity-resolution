@@ -10,62 +10,6 @@ from config import MAX_NAME_LENGTH, MAX_EMAIL_LENGTH
 class ContactEncoder(nn.Module):
     PAD_CHARACTER = "\0"
 
-    def __init__(
-        self,
-        vocab_size,
-        embedding_dim=60,
-        n_heads_attn=4,
-        attn_dim=180,
-        norm_eps=1e-6,
-        output_embedding_dim=8,
-        output_mlp_layers=6,
-        dropout=0.0,
-    ):
-        super(ContactEncoder, self).__init__()
-
-        # --- Embedding layers
-        self.embedding_dim = embedding_dim
-        self.embedding = nn.Sequential(
-            nn.Embedding(vocab_size, embedding_dim),
-            nn.LayerNorm(embedding_dim, eps=norm_eps),
-        )
-
-        # --- Attention Layer
-        self.attn_dim = attn_dim
-        self.fc_expand_embedding = nn.Linear(embedding_dim, attn_dim)
-
-        self.positional_encoding = self.init_positional_encoding(
-            MAX_NAME_LENGTH + MAX_EMAIL_LENGTH, attn_dim
-        )
-
-        self.n_heads_attn = n_heads_attn
-        self.multihead_attn = nn.MultiheadAttention(
-            attn_dim, n_heads_attn, batch_first=True
-        )
-
-        self.norm_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
-
-        # -- Attention Processing
-        self.fc_proc_attn = nn.Sequential(
-            nn.Linear(attn_dim, attn_dim),
-            nn.ReLU(),
-            nn.Linear(attn_dim, attn_dim),
-        )
-
-        self.norm_proc_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
-
-        # -- Final Output Processing
-        self.output_embedding_dim = output_embedding_dim
-        self.fc_output = nn.Sequential(
-            MLP(
-                attn_dim,
-                [attn_dim] * output_mlp_layers,
-                norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
-                # activation_layer=lambda: nn.Tanh(),
-            ),
-            nn.Linear(attn_dim, output_embedding_dim),
-        )
-
     @staticmethod
     def init_positional_encoding(max_sequence_length, embedding_dimension):
         """
@@ -130,6 +74,62 @@ class ContactEncoder(nn.Module):
     def create_attn_mask(lengths, max_len):
         mask = torch.arange(max_len)[None, :] >= lengths[:, None]
         return mask.bool()
+
+    def __init__(
+        self,
+        vocab_size,
+        embedding_dim=60,
+        n_heads_attn=4,
+        attn_dim=180,
+        norm_eps=1e-6,
+        output_embedding_dim=8,
+        output_mlp_layers=6,
+        dropout=0.0,
+    ):
+        super(ContactEncoder, self).__init__()
+
+        # --- Embedding layers
+        self.embedding_dim = embedding_dim
+        self.embedding = nn.Sequential(
+            nn.Embedding(vocab_size, embedding_dim),
+            nn.LayerNorm(embedding_dim, eps=norm_eps),
+        )
+
+        # --- Attention Layer
+        self.attn_dim = attn_dim
+        self.fc_expand_embedding = nn.Linear(embedding_dim, attn_dim)
+
+        self.positional_encoding = self.init_positional_encoding(
+            MAX_NAME_LENGTH + MAX_EMAIL_LENGTH, attn_dim
+        )
+
+        self.n_heads_attn = n_heads_attn
+        self.multihead_attn = nn.MultiheadAttention(
+            attn_dim, n_heads_attn, batch_first=True
+        )
+
+        self.norm_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
+
+        # -- Attention Processing
+        self.fc_proc_attn = nn.Sequential(
+            nn.Linear(attn_dim, attn_dim),
+            nn.ReLU(),
+            nn.Linear(attn_dim, attn_dim),
+        )
+
+        self.norm_proc_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
+
+        # -- Final Output Processing
+        self.output_embedding_dim = output_embedding_dim
+        self.fc_output = nn.Sequential(
+            MLP(
+                attn_dim,
+                [attn_dim] * output_mlp_layers,
+                norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
+                # activation_layer=lambda: nn.Tanh(),
+            ),
+            nn.Linear(attn_dim, output_embedding_dim),
+        )
 
     def device(self):
         return next(self.parameters()).device
