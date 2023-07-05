@@ -6,9 +6,9 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from model import create_char_to_int, ContactEncoder
+from model import ContactEncoder
 from config import *
-from data import NameDataset
+from data import ContactDataModule
 from report import create_html_report
 
 
@@ -137,16 +137,16 @@ def eval_model(
 
 
 if __name__ == "__main__":
-    char_to_int, chars = create_char_to_int()
+    data_module = ContactDataModule(batch_size=EVAL_BATCH_SIZE)
 
     # Create model instance
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Found device {device}")
 
-    model = ContactEncoder(len(chars))
-    if os.path.exists(SAVED_MODEL_CONFIG_FNAME):
+    model = ContactEncoder(len(data_module.vocabulary))
+    if os.path.exists(SAVED_MODEL_FNAME):
         print("Found existing model weights.")
-        model.load_state_dict(torch.load(SAVED_MODEL_CONFIG_FNAME))
+        model.load_state_dict(torch.load(SAVED_MODEL_FNAME))
     else:
         print("No model found. Exiting.")
         sys.exit()
@@ -155,21 +155,21 @@ if __name__ == "__main__":
     # Define the optimizer and criterion
     criterion = LOSS_FUNCTION(MARGIN)
 
-    # Create the DataLoader
-    eval_data_loader = DataLoader(
-        NameDataset("data/eval.csv", char_to_int, debug=True),
-        batch_size=EVAL_BATCH_SIZE,
-        shuffle=False,
-    )
+    # # Create the DataLoader
+    # eval_data_loader = DataLoader(
+    #     NameDataset("data/eval.csv", char_to_int, debug=True),
+    #     batch_size=EVAL_BATCH_SIZE,
+    #     shuffle=False,
+    # )
 
-    eval_loss, precision, recall, f1 = eval_model(
-        model,
-        device,
-        eval_data_loader,
-        criterion,
-        SIMILARITY_METRIC(0.5, return_distance=True),
-        report_filename="report.html",
-    )
-    print(
-        f"Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
-    )
+    # eval_loss, precision, recall, f1 = eval_model(
+    #     model,
+    #     device,
+    #     eval_data_loader,
+    #     criterion,
+    #     SIMILARITY_METRIC(0.5, return_distance=True),
+    #     report_filename="report.html",
+    # )
+    # print(
+    #     f"Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
+    # )

@@ -1,22 +1,102 @@
 import os
-from typing import List, Optional
+from typing import Any, Callable, List, Optional, Tuple
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
-from torchinfo import summary
+import lightning.pytorch as pl
+from lightning.pytorch.callbacks import ModelSummary
 from tqdm import tqdm
 import json
+from sklearn.metrics import precision_score, recall_score, f1_score
 
-from model import create_char_to_int, ContactEncoder
+from model import ContactEncoder
 from eval import eval_model
 from config import *
-from data import NameDataset
+from data import ContactDataModule
 
-N_EPOCHS = 6
-TRAIN_BATCH_SIZE = 64
+N_EPOCHS = 4
+TRAIN_BATCH_SIZE = 2
 LEARNING_RATE = 0.00005
 
 CHECKPOINT_PERIOD = 2
+
+
+def convert_bool_tensor(tensor):
+    ones = torch.ones_like(tensor, dtype=torch.float32)
+    minus_ones = -1 * ones
+    converted_tensor = torch.where(tensor, ones, minus_ones)
+    return converted_tensor
+
+
+class PlContactEncoder(pl.LightningModule):
+    def __init__(
+        self,
+        encoder: ContactEncoder,
+        loss_function: Callable[[torch.Tensor, torch.Tensor, float], float],
+        similarity_function: Callable[
+            [torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]
+        ],
+        lr: float = 1e-5,
+    ):
+        super().__init__()
+        self.encoder = encoder
+        self.loss_function = loss_function
+        self.similarity_function = similarity_function
+        self.lr = lr
+
+        # --- Evaluation Performance Data
+        self.validation_labels = []
+        self.validation_preds = []
+
+    def training_step(self, batch, batch_idx):
+        (tokens1, lengths1, tokens2, lengths2, labels) = batch
+
+        # Forward pass through the model
+        output1 = self.encoder(tokens1, lengths1)
+        output2 = self.encoder(tokens2, lengths2)
+
+        # Calculate loss
+        loss = self.loss_function(output1, output2, labels)
+
+        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
+
+        return loss
+
+    def validation_step(self, batch, batch_idx) -> None:
+        (tokens1, lengths1, tokens2, lengths2, labels) = batch
+
+        # Forward pass through the model
+        output1 = self.encoder(tokens1, lengths1)
+        output2 = self.encoder(tokens2, lengths2)
+
+        # Compute the loss
+        loss = criterion(output1, output2, labels)
+
+        pred, dists = self.similarity_function(output1, output2)
+        pred = convert_bool_tensor(pred)
+
+        # Log
+        self.log("val_loss", loss)
+        self.validation_labels.append(labels.cpu())
+        self.validation_preds.append(pred.cpu())
+
+    def on_validation_epoch_end(self) -> None:
+        all_labels = torch.cat(self.validation_labels).numpy()
+        all_preds = torch.cat(self.validation_preds).numpy()
+
+        precision = float(precision_score(all_labels, all_preds, zero_division=0))
+        recall = float(recall_score(all_labels, all_preds))
+        f1 = float(f1_score(all_labels, all_preds))
+
+        self.log_dict({"val_precision": precision, "val_recall": recall, "val_f1": f1})
+
+        # Free validation logging memory
+        self.validation_labels.clear()
+        self.validation_preds.clear()
+
+    def configure_optimizers(self) -> Any:
+        optimizer = optim.Adam(self.parameters(), lr=self.lr)
+        return optimizer
 
 
 def get_training_config(optimizer, criterion, current_epoch: int, n_epochs: int):
@@ -180,13 +260,14 @@ def train_model(
 
 
 if __name__ == "__main__":
-    char_to_int, chars = create_char_to_int()
+    # Load the data
+    data_module = ContactDataModule(batch_size=TRAIN_BATCH_SIZE)
 
     # Create model instance
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Found device {device}")
 
-    model = ContactEncoder(len(chars))
+    model = ContactEncoder(len(data_module.vocabulary))
     if os.path.exists(SAVED_MODEL_FNAME):
         print("Found existing model weights. Starting from there.")
         model.load_state_dict(torch.load(SAVED_MODEL_FNAME))
@@ -197,35 +278,32 @@ if __name__ == "__main__":
         model_config = {}
     model.to(device)
 
-    # Define the optimizer and criterion
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = LOSS_FUNCTION(margin=MARGIN)
 
-    # Create the DataLoader
-    data_loader = DataLoader(
-        NameDataset("data/training.csv", char_to_int),
-        batch_size=TRAIN_BATCH_SIZE,
-        shuffle=True,
-    )
-    eval_data_loader = DataLoader(
-        NameDataset("data/eval.csv", char_to_int, debug=True),
-        batch_size=TRAIN_BATCH_SIZE,
-        shuffle=True,
-    )
+    # lightning_model = PlContactEncoder(
+    #     model, criterion, SIMILARITY_METRIC(0.5, return_distance=True), LEARNING_RATE
+    # )
+    # lightning_model.to(device)
+
+    # trainer = pl.Trainer(max_epochs=N_EPOCHS, callbacks=[ModelSummary(max_depth=-1)])
+    # trainer.fit(
+    #     model=lightning_model,
+    #     datamodule=data_module,
+    # )
 
     # Train the model
     start_epoch = model_config.get("training_config", {}).get("current_epoch", 0)
     final_config = train_model(
         model,
-        data_loader,
-        eval_data_loader,
-        optimizer,
+        data_module.train_dataloader(),
+        data_module.val_dataloader(),
+        optim.Adam(self.parameters(), lr=LEARNING_RATE),
         criterion,
         device,
         start_epoch=start_epoch,
     )
 
-    print("Saving model weights")
-    torch.save(model.state_dict(), SAVED_MODEL_FNAME)
-    if final_config:
-        save_configs(final_config, fname=SAVED_MODEL_CONFIG_FNAME)
+    # print("Saving model weights")
+    # torch.save(model.state_dict(), SAVED_MODEL_FNAME)
+    # if final_config:
+    #     save_configs(final_config, fname=SAVED_MODEL_CONFIG_FNAME)

@@ -1,7 +1,9 @@
 torch
 torchvision
 torchaudio
-torchinfo
+tensorboard
+lightning
+lightning[extra]
 scikit-learn
 matplotlib
 seaborn

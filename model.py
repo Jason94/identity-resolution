@@ -1,15 +1,13 @@
+from typing import List
 import torch
 from torch import nn
 from torchvision.ops import MLP
-import string
 import math
 
 from config import MAX_NAME_LENGTH, MAX_EMAIL_LENGTH
 
 
 class ContactEncoder(nn.Module):
-    PAD_CHARACTER = "\0"
-
     @staticmethod
     def init_positional_encoding(max_sequence_length, embedding_dimension):
         """
@@ -71,8 +69,9 @@ class ContactEncoder(nn.Module):
         return positional_encoding
 
     @staticmethod
-    def create_attn_mask(lengths, max_len):
-        mask = torch.arange(max_len)[None, :] >= lengths[:, None]
+    def create_attn_mask(lengths, max_len, device):
+        raw = torch.arange(max_len)[None, :].to(device)
+        mask = raw >= lengths[:, None]
         return mask.bool()
 
     def __init__(
@@ -141,7 +140,18 @@ class ContactEncoder(nn.Module):
         return next(self.parameters()).device
 
     # Use *xargs as a hack to avoid torch-info bug
-    def forward(self, name_tensor, lengths, email_tensor, email_lengths, *xargs):
+    def forward(
+        self,
+        token_tensors: List[torch.Tensor],
+        length_tensors: List[torch.Tensor],
+        *xargs
+    ):
+        # For now, since we only have two fields, we'll hard-code this.
+        name_tensor = token_tensors[0]
+        email_tensor = token_tensors[1]
+        lengths = length_tensors[0]
+        email_lengths = length_tensors[1]
+
         # Generate the initial embeddings
         embedding_name = self.embedding(name_tensor)
         embedding_email = self.embedding(email_tensor)
@@ -153,11 +163,11 @@ class ContactEncoder(nn.Module):
         combined_field_embeddings = torch.cat([expanded_name, expanded_email], dim=1)
 
         # Create the attention mask
-        name_attn_mask = self.create_attn_mask(lengths, expanded_name.size(1)).to(
-            self.device()
-        )
+        name_attn_mask = self.create_attn_mask(
+            lengths, expanded_name.size(1), self.device()
+        ).to(self.device())
         email_attn_mask = self.create_attn_mask(
-            email_lengths, expanded_email.size(1)
+            email_lengths, expanded_email.size(1), self.device()
         ).to(self.device())
         attn_mask = torch.cat([name_attn_mask, email_attn_mask], dim=1)
 
@@ -200,13 +210,3 @@ class ContactEncoder(nn.Module):
         output_embeddings = self.fc_output(weighted_sum_output)
 
         return output_embeddings
-
-
-def create_char_to_int():
-    # Create a list of all ASCII printable characters.
-    chars = list(string.printable) + [ContactEncoder.PAD_CHARACTER]
-
-    # Create a dictionary that maps each character to a unique integer.
-    char_to_int = {char: i for i, char in enumerate(chars)}
-
-    return char_to_int, chars
