@@ -17,7 +17,7 @@ class ContactEncoder(nn.Module):
         n_heads_attn=4,
         attn_dim=180,
         norm_eps=1e-6,
-        output_embedding_dim=60,
+        output_embedding_dim=8,
         output_mlp_layers=6,
         dropout=0.0,
     ):
@@ -25,7 +25,10 @@ class ContactEncoder(nn.Module):
 
         # --- Embedding layers
         self.embedding_dim = embedding_dim
-        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.embedding = nn.Sequential(
+            nn.Embedding(vocab_size, embedding_dim),
+            nn.LayerNorm(embedding_dim, eps=norm_eps),
+        )
 
         # --- Attention Layer
         self.attn_dim = attn_dim
