@@ -1,13 +1,10 @@
 import os
 import sys
 import torch
-from torch import nn, optim
-from torch.utils.data import DataLoader
 
 from model import create_char_to_int, ContactEncoder
 from config import *
 from data import NameDataset
-from contrastive_metric import ContrastiveLoss
 
 if __name__ == "__main__":
     char_to_int, chars = create_char_to_int()
@@ -17,9 +14,9 @@ if __name__ == "__main__":
     print(f"Found device {device}")
 
     model = ContactEncoder(len(chars))
-    if os.path.exists(SAVED_MODEL_PATH):
+    if os.path.exists(SAVED_MODEL_FNAME):
         print("Found existing model.")
-        model.load_state_dict(torch.load(SAVED_MODEL_PATH))
+        model.load_state_dict(torch.load(SAVED_MODEL_FNAME))
     else:
         print("Could not find model.")
         sys.exit()

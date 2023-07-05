@@ -180,10 +180,6 @@ def train_model(
 
 
 if __name__ == "__main__":
-    saved_model_fname = os.path.join(SAVED_MODEL_DIR, f"{SAVED_MODEL_PATH}.pth")
-    saved_model_config_fname = f"config_{SAVED_MODEL_PATH}.json"
-    saved_model_config_path = os.path.join(SAVED_MODEL_DIR, saved_model_config_fname)
-
     char_to_int, chars = create_char_to_int()
 
     # Create model instance
@@ -191,10 +187,10 @@ if __name__ == "__main__":
     print(f"Found device {device}")
 
     model = ContactEncoder(len(chars))
-    if os.path.exists(saved_model_fname):
+    if os.path.exists(SAVED_MODEL_FNAME):
         print("Found existing model weights. Starting from there.")
-        model.load_state_dict(torch.load(saved_model_fname))
-        with open(saved_model_config_path) as conf:
+        model.load_state_dict(torch.load(SAVED_MODEL_FNAME))
+        with open(SAVED_MODEL_CONFIG_PATH) as conf:
             model_config = json.load(conf)
     else:
         print("Initializing random weights.")
@@ -230,6 +226,6 @@ if __name__ == "__main__":
     )
 
     print("Saving model weights")
-    torch.save(model.state_dict(), saved_model_fname)
+    torch.save(model.state_dict(), SAVED_MODEL_FNAME)
     if final_config:
-        save_configs(final_config, fname=saved_model_config_fname)
+        save_configs(final_config, fname=SAVED_MODEL_CONFIG_FNAME)

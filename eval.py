@@ -3,7 +3,6 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 import os
 import sys
 import torch
-from torch import nn, optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -138,7 +137,6 @@ def eval_model(
 
 
 if __name__ == "__main__":
-    full_path = os.path.join(SAVED_MODEL_DIR, f"{SAVED_MODEL_PATH}.pth")
     char_to_int, chars = create_char_to_int()
 
     # Create model instance
@@ -146,9 +144,9 @@ if __name__ == "__main__":
     print(f"Found device {device}")
 
     model = ContactEncoder(len(chars))
-    if os.path.exists(full_path):
+    if os.path.exists(SAVED_MODEL_CONFIG_FNAME):
         print("Found existing model weights.")
-        model.load_state_dict(torch.load(full_path))
+        model.load_state_dict(torch.load(SAVED_MODEL_CONFIG_FNAME))
     else:
         print("No model found. Exiting.")
         sys.exit()
