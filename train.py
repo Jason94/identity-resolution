@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
@@ -12,16 +12,17 @@ from eval import eval_model
 from config import *
 from data import NameDataset
 
-N_EPOCHS = 10
-TRAIN_BATCH_SIZE = 8
-LEARNING_RATE = 0.00005
+N_EPOCHS = 6
+TRAIN_BATCH_SIZE = 64
+LEARNING_RATE = 0.0000075
 
-CHECKPOINT_PERIOD = 5
+CHECKPOINT_PERIOD = 2
 
 
-def get_training_config(optimizer, criterion):
+def get_training_config(optimizer, criterion, current_epoch: int, n_epochs: int):
     config = {
-        "n_epochs": N_EPOCHS,
+        "current_epoch": current_epoch,
+        "n_epochs": n_epochs,
         "train_batch_size": TRAIN_BATCH_SIZE,
         "learning_rate": LEARNING_RATE,
         "margin": MARGIN,
@@ -41,20 +42,37 @@ def get_eval_config(eval_loss, precision, recall, f1):
     return config
 
 
-def save_configs(
-    epoch, model, input_data, optimizer, criterion, eval_loss, precision, recall, f1
+def package_configs(
+    epoch: int,
+    n_epochs: int,
+    model,
+    input_data,
+    optimizer,
+    criterion,
+    eval_loss,
+    precision,
+    recall,
+    f1,
 ):
     # model_config = summary(model, input_data=input_data)
     model_config = ""
-    training_config = get_training_config(optimizer, criterion)
+    training_config = get_training_config(optimizer, criterion, epoch, n_epochs)
     eval_config = get_eval_config(eval_loss, precision, recall, f1)
-    with open(f"{SAVED_MODEL_DIR}/config_chkpt_{epoch}.json", "w") as f:
+    return {
+        "model_config": model_config,
+        "training_config": training_config,
+        "eval_config": eval_config,
+    }
+
+
+def save_configs(configs, epoch: Optional[int] = None, fname: Optional[str] = None):
+    if fname is None and epoch is not None:
+        fname = f"config_chkpt_{epoch}.json"
+    elif fname is None:
+        raise ValueError("Must supply epoch or fname")
+    with open(os.path.join(SAVED_MODEL_DIR, fname), "w") as f:
         json.dump(
-            {
-                "model_config": model_config,
-                "training_config": training_config,
-                "eval_config": eval_config,
-            },
+            configs,
             f,
             indent=4,
         )
@@ -68,27 +86,34 @@ def train_model(
     criterion,
     device: torch.device = torch.device("cpu"),
     n_epochs=N_EPOCHS,
+    start_epoch=0,
 ):
-    eval_loss, precision, recall, f1 = eval_model(
-        model, device, eval_data_loader, criterion, SIMILARITY_METRIC(0.5)
-    )
-    torch.save(model.state_dict(), f"{SAVED_MODEL_DIR}/chkpt_0.pth")
-    save_configs(
-        0,
-        model,
-        eval_data_loader.dataset[0],
-        optimizer,
-        criterion,
-        eval_loss,
-        precision,
-        recall,
-        f1,
-    )
-    print(
-        f"Preliminary: Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
-    )
+    n_epochs = n_epochs + start_epoch
 
-    for epoch in range(n_epochs):
+    if start_epoch == 0:
+        eval_loss, precision, recall, f1 = eval_model(
+            model, device, eval_data_loader, criterion, SIMILARITY_METRIC(0.5)
+        )
+        torch.save(model.state_dict(), f"{SAVED_MODEL_DIR}/chkpt_0.pth")
+        config = package_configs(
+            0,
+            n_epochs,
+            model,
+            eval_data_loader.dataset[0],
+            optimizer,
+            criterion,
+            eval_loss,
+            precision,
+            recall,
+            f1,
+        )
+        save_configs(config, 0)
+        print(
+            f"Preliminary: Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
+        )
+
+    config = None
+    for epoch in range(start_epoch, n_epochs):
         model.train()
         total_loss = 0.0
 
@@ -127,10 +152,11 @@ def train_model(
             f"Epoch {epoch+1} / {n_epochs}: Avg Train Loss = {avg_train_loss:.4f}; Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
         )
 
-        if (epoch + 1) % CHECKPOINT_PERIOD == 0:
+        if (epoch + 1) % CHECKPOINT_PERIOD == 0 or (epoch + 1) == n_epochs:
             torch.save(model.state_dict(), f"{SAVED_MODEL_DIR}/chkpt_{epoch+1}.pth")
-            save_configs(
+            config = package_configs(
                 epoch + 1,
+                n_epochs,
                 model,
                 eval_data_loader.dataset[0],
                 optimizer,
@@ -140,9 +166,16 @@ def train_model(
                 recall,
                 f1,
             )
+            save_configs(config, epoch + 1)
+
+    return config
 
 
 if __name__ == "__main__":
+    saved_model_fname = os.path.join(SAVED_MODEL_DIR, f"{SAVED_MODEL_PATH}.pth")
+    saved_model_config_fname = f"config_{SAVED_MODEL_PATH}.json"
+    saved_model_config_path = os.path.join(SAVED_MODEL_DIR, saved_model_config_fname)
+
     char_to_int, chars = create_char_to_int()
 
     # Create model instance
@@ -150,11 +183,14 @@ if __name__ == "__main__":
     print(f"Found device {device}")
 
     model = ContactEncoder(len(chars))
-    if os.path.exists(SAVED_MODEL_PATH):
+    if os.path.exists(saved_model_fname):
         print("Found existing model weights. Starting from there.")
-        model.load_state_dict(torch.load(SAVED_MODEL_PATH))
+        model.load_state_dict(torch.load(saved_model_fname))
+        with open(saved_model_config_path) as conf:
+            model_config = json.load(conf)
     else:
         print("Initializing random weights.")
+        model_config = {}
     model.to(device)
 
     # Define the optimizer and criterion
@@ -174,7 +210,18 @@ if __name__ == "__main__":
     )
 
     # Train the model
-    train_model(model, data_loader, eval_data_loader, optimizer, criterion, device)
+    start_epoch = model_config.get("training_config", {}).get("current_epoch", 0)
+    final_config = train_model(
+        model,
+        data_loader,
+        eval_data_loader,
+        optimizer,
+        criterion,
+        device,
+        start_epoch=start_epoch,
+    )
 
     print("Saving model weights")
-    torch.save(model.state_dict(), SAVED_MODEL_PATH)
+    torch.save(model.state_dict(), saved_model_fname)
+    if final_config:
+        save_configs(final_config, fname=saved_model_config_fname)
