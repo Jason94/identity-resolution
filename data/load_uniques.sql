@@ -65,7 +65,7 @@ with ea_emails AS (
 ), distincts_final as (
     SELECT *, -1 as label
     FROM distincts
-    LIMIT 6743
+    LIMIT 30000
 )
 select *
 from distincts_final

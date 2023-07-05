@@ -73,7 +73,7 @@ def main():
     random.shuffle(all_pairs)
 
     # Split the data into training and evaluation sets
-    split_index = int(len(all_pairs) * 0.8)
+    split_index = int(len(all_pairs) * 0.85)
     training_pairs = all_pairs[:split_index]
     eval_pairs = all_pairs[split_index:]
 
