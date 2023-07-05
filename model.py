@@ -84,7 +84,7 @@ class ContactEncoder(nn.Module):
         norm_eps=1e-6,
         output_embedding_dim=8,
         output_mlp_layers=6,
-        dropout=0.0,
+        p_dropout=0.1,
     ):
         super(ContactEncoder, self).__init__()
 
@@ -109,7 +109,7 @@ class ContactEncoder(nn.Module):
 
         self.n_heads_attn = n_heads_attn
         self.multihead_attn = nn.MultiheadAttention(
-            attn_dim, n_heads_attn, batch_first=True
+            attn_dim, n_heads_attn, batch_first=True, dropout=p_dropout
         )
 
         self.norm_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
@@ -118,6 +118,7 @@ class ContactEncoder(nn.Module):
         self.fc_proc_attn = nn.Sequential(
             nn.Linear(attn_dim, attn_dim),
             nn.ReLU(),
+            nn.Dropout(p_dropout),
             nn.Linear(attn_dim, attn_dim),
         )
 
@@ -132,6 +133,7 @@ class ContactEncoder(nn.Module):
                 norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
                 # activation_layer=lambda: nn.Tanh(),
             ),
+            nn.Dropout(p_dropout),
             nn.Linear(attn_dim, output_embedding_dim),
         )
 

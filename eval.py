@@ -58,6 +58,7 @@ def eval_model(
     total_loss = 0.0
     all_labels = []
     all_preds = []
+    all_dists = []
 
     all_first1 = []
     all_last1 = []
@@ -91,11 +92,13 @@ def eval_model(
             loss = criterion(output1, output2, label)
             total_loss += loss.item()
 
-            pred = convert_bool_tensor(similarity(output1, output2))
+            pred, dists = similarity(output1, output2)
+            pred = convert_bool_tensor(pred)
 
             # Compute the predictions
             all_labels.append(label.cpu())
             all_preds.append(pred.cpu())
+            all_dists.append(dists.cpu())
 
             all_first1.extend(first1)
             all_last1.extend(last1)
@@ -106,6 +109,7 @@ def eval_model(
 
     all_labels = torch.cat(all_labels).numpy()
     all_preds = torch.cat(all_preds).numpy()
+    all_dists = torch.cat(all_dists).numpy()
 
     # Compute the average loss over the entire evaluation dataset
     avg_loss = total_loss / len(eval_data_loader)
@@ -119,6 +123,7 @@ def eval_model(
         create_html_report(
             all_preds,
             all_labels,
+            all_dists,
             all_first1,
             all_last1,
             all_email1,
@@ -164,7 +169,7 @@ if __name__ == "__main__":
         device,
         eval_data_loader,
         criterion,
-        SIMILARITY_METRIC(0.5),
+        SIMILARITY_METRIC(0.5, return_distance=True),
         report_filename="report.html",
     )
     print(

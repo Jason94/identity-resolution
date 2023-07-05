@@ -16,6 +16,7 @@ def embed_matplotlib_figure(fig):
 def create_html_report(
     all_preds,
     all_labels,
+    all_dists,
     all_first1,
     all_last1,
     all_email1,
@@ -33,6 +34,7 @@ def create_html_report(
     report_df["(2) last_name"] = list(all_last2)
     report_df["(2) email"] = list(all_email2)
 
+    report_df["distance"] = all_dists
     report_df["eval_duplicates"] = all_preds
     report_df["label_duplicates"] = all_labels
 

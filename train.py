@@ -14,7 +14,7 @@ from data import NameDataset
 
 N_EPOCHS = 6
 TRAIN_BATCH_SIZE = 64
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.00005
 
 CHECKPOINT_PERIOD = 2
 
@@ -92,7 +92,11 @@ def train_model(
 
     if start_epoch == 0:
         eval_loss, precision, recall, f1 = eval_model(
-            model, device, eval_data_loader, criterion, SIMILARITY_METRIC(0.5)
+            model,
+            device,
+            eval_data_loader,
+            criterion,
+            SIMILARITY_METRIC(0.5, return_distance=True),
         )
         torch.save(model.state_dict(), f"{SAVED_MODEL_DIR}/chkpt_0.pth")
         config = package_configs(
@@ -146,7 +150,11 @@ def train_model(
         # Evaluate the model
         avg_train_loss = total_loss / len(data_loader)
         eval_loss, precision, recall, f1 = eval_model(
-            model, device, eval_data_loader, criterion, SIMILARITY_METRIC(0.5)
+            model,
+            device,
+            eval_data_loader,
+            criterion,
+            SIMILARITY_METRIC(0.5, return_distance=True),
         )
         tqdm.write(
             f"Epoch {epoch+1} / {n_epochs}: Avg Train Loss = {avg_train_loss:.4f}; Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
