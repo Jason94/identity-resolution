@@ -99,6 +99,10 @@ class ContactEncoder(nn.Module):
         self.attn_dim = attn_dim
         self.fc_expand_embedding = nn.Linear(embedding_dim, attn_dim)
 
+        self.que_layer = nn.Linear(attn_dim, attn_dim)
+        self.key_layer = nn.Linear(attn_dim, attn_dim)
+        self.val_layer = nn.Linear(attn_dim, attn_dim)
+
         self.positional_encoding = self.init_positional_encoding(
             MAX_NAME_LENGTH + MAX_EMAIL_LENGTH, attn_dim
         )
@@ -166,10 +170,14 @@ class ContactEncoder(nn.Module):
         )
 
         # Pass through the multihead attention
+        queries = self.que_layer(combined_field_embeddings)
+        keys = self.key_layer(combined_field_embeddings)
+        values = self.val_layer(combined_field_embeddings)
+
         attn_output, attn_output_weights = self.multihead_attn(
-            combined_field_embeddings,
-            combined_field_embeddings,
-            combined_field_embeddings,
+            queries,
+            keys,
+            values,
             key_padding_mask=attn_mask,
         )
 
