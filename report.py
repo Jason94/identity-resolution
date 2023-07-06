@@ -21,8 +21,6 @@ def create_html_report(
     file_name,
     title: str,
 ):
-    report_df = pd.DataFrame()
-
     report_df["distance"] = all_dists
     report_df["eval_duplicates"] = all_preds
     report_df["label_duplicates"] = all_labels

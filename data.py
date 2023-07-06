@@ -86,9 +86,8 @@ class ContactDataset(Dataset):
         field_values = {}
 
         for f in self.fields:
-            for sf in f.subfield_labels:
-                for i in ["1", "2"]:
-                    field_values[sf + i] = self.data[idx][sf + i]
+            for i in ["1", "2"]:
+                field_values[f.field + i] = self.data[idx][f.field + i]
 
         return field_values
 
@@ -223,7 +222,19 @@ class ContactDataModule(pl.LightningDataModule):
             logger.info(f"Tokenizing {field.field} field")
             df = df.join(df.apply(self._tokenize_field(field), axis=1))
 
-            if not self.preserve_text_fields:
+            if self.preserve_text_fields:
+                for i in ["1", "2"]:
+                    if len(field.subfield_labels) > 1:
+                        indexed_subfields = [sf + i for sf in field.subfield_labels]
+                        df[field.field + i] = df[indexed_subfields].apply(
+                            lambda x: " ".join(x), axis=1
+                        )
+                    df[field.field + i] = df[field.field + i].str.slice(
+                        0, field.max_length
+                    )
+
+            # If we aren't keeping the text fields at all, or if we've already combined them, drop.
+            if not self.preserve_text_fields or len(field.subfield_labels) > 1:
                 for i in ["1", "2"]:
                     df = df.drop(columns=[sf + i for sf in field.subfield_labels])
 
@@ -235,7 +246,8 @@ class ContactDataModule(pl.LightningDataModule):
         df_val.to_csv(os.path.join(self.data_dir, val_file))
 
     def _read_prepared_data(self, filepath: str, **dataset_args) -> ContactDataset:
-        data = pd.read_csv(filepath).to_dict(orient="records")
+        df = pd.read_csv(filepath, keep_default_na=False)
+        data = df.to_dict(orient="records")
 
         for row in data:
             for f in self.fields:
@@ -267,7 +279,7 @@ class ContactDataModule(pl.LightningDataModule):
             raise NotImplementedError(f"Have not implemented data stage {stage}")
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=False)
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
 
     def val_dataloader(
         self,

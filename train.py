@@ -12,11 +12,11 @@ from eval import eval_model
 from config import *
 from data import ContactDataModule
 
-N_EPOCHS = 6
+N_EPOCHS = 3
 TRAIN_BATCH_SIZE = 64
 LEARNING_RATE = 0.00005
 
-CHECKPOINT_PERIOD = 2
+CHECKPOINT_PERIOD = 1000
 
 
 def get_training_config(optimizer, criterion, current_epoch: int, n_epochs: int):
