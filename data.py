@@ -157,7 +157,11 @@ class ContactDataModule(pl.LightningDataModule):
         return _tokenize
 
     def prepare_data(
-        self, writefile: str = "prepared_data.csv", overwrite: bool = False
+        self,
+        writefile: str = "prepared_data.csv",
+        train_file: str = "prepared_train_data.csv",
+        val_file: str = "prepared_val_data.csv",
+        overwrite: bool = False,
     ) -> None:
         writepath = os.path.join(self.data_dir, writefile)
         if os.path.exists(writepath) and not overwrite:
@@ -206,34 +210,43 @@ class ContactDataModule(pl.LightningDataModule):
                 for i in ["1", "2"]:
                     df = df.drop(columns=[sf + i for sf in field.subfield_labels])
 
+        df_val = df.sample(frac=self.p_validation)
+        df_train = df.drop(df_val.index)
+
         df.to_csv(writepath)
+        df_train.to_csv(os.path.join(self.data_dir, train_file))
+        df_val.to_csv(os.path.join(self.data_dir, val_file))
 
-    def setup(self, stage: str, readfile: str = "prepared_data.csv") -> None:
-        readpath = os.path.join(self.data_dir, readfile)
+    def _read_prepared_data(self, filepath: str) -> ContactDataset:
+        data = pd.read_csv(filepath).to_dict(orient="records")
+
+        for row in data:
+            for f in self.fields:
+                for i in ["1", "2"]:
+                    column = f"{f.field}_tokens{i}"
+                    row[column] = torch.tensor([int(t) for t in row[column].split("|")])
+
+        return ContactDataset(data, self.fields)
+
+    def setup(
+        self,
+        stage: str,
+        train_file: str = "prepared_train_data.csv",
+        val_file: str = "prepared_val_data.csv",
+    ) -> None:
         if stage == "fit" or stage == "validate":
-            data = pd.read_csv(readpath).to_dict(orient="records")
-
-            for row in data:
-                for f in self.fields:
-                    for i in ["1", "2"]:
-                        column = f"{f.field}_tokens{i}"
-                        row[column] = torch.tensor(
-                            [int(t) for t in row[column].split("|")]
-                        )
-
-            dataset = ContactDataset(data, self.fields)
-
-            n_validation = int(len(data) * self.p_validation)
-            n_training = len(data) - n_validation
-            self.train_dataset, self.val_dataset = random_split(
-                dataset, [n_training, n_validation]
+            self.train_dataset = self._read_prepared_data(
+                os.path.join(self.data_dir, train_file)
+            )
+            self.val_dataset = self._read_prepared_data(
+                os.path.join(self.data_dir, val_file)
             )
 
         else:
             raise NotImplementedError(f"Have not implemented data stage {stage}")
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:
-        return DataLoader(self.train_dataset, batch_size=self.batch_size)
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=False)
 
     def val_dataloader(self) -> EVAL_DATALOADERS:
         return DataLoader(self.val_dataset, batch_size=self.batch_size)
