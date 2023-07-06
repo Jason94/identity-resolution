@@ -3,12 +3,12 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 import os
 import sys
 import torch
-from torch.utils.data import DataLoader
 from tqdm import tqdm
+import pandas as pd
 
-from model import create_char_to_int, ContactEncoder
+from model import ContactEncoder
 from config import *
-from data import NameDataset
+from data import ContactDataModule
 from report import create_html_report
 
 
@@ -22,7 +22,7 @@ def convert_bool_tensor(tensor):
 def eval_model(
     model,
     device: torch.device,
-    eval_data_loader: DataLoader,
+    data_module: ContactDataModule,
     criterion,
     similarity,
     report_filename: Optional[str] = None,
@@ -53,62 +53,49 @@ def eval_model(
                         F1 Score reaches its best value at 1 (perfect precision
                         and recall) and worst at 0.
     """
+    eval_data_loader = data_module.val_dataloader(memoize=True)
+
     model.eval()
     total_loss = 0.0
     all_labels = []
     all_preds = []
     all_dists = []
 
-    all_first1 = []
-    all_last1 = []
-    all_email1 = []
-    all_first2 = []
-    all_last2 = []
-    all_email2 = []
+    all_field_data = []
 
     with torch.no_grad():
         for batch in tqdm(eval_data_loader, leave=False):
-            # Unpack batch and move to the device
-            (
-                (name1_tensor, len1, email1_tensor, len_email1),
-                (name2_tensor, len2, email2_tensor, len_email2),
-                label,
-                (first1, last1, email1),
-                (first2, last2, email2),
-            ) = batch
+            batch = data_module.transfer_batch_to_device(batch, device, 0)
 
-            name1_tensor = name1_tensor.to(device)
-            name2_tensor = name2_tensor.to(device)
-            email1_tensor = email1_tensor.to(device)
-            email2_tensor = email2_tensor.to(device)
-            label = label.to(device)
+            # Unpack batch and move to the device
+            (tokens1, lengths1, tokens2, lengths2, labels, idx) = batch
 
             # Forward pass through the model
-            output1 = model(name1_tensor, len1, email1_tensor, len_email1)
-            output2 = model(name2_tensor, len2, email2_tensor, len_email2)
+            output1 = model(tokens1, lengths1)
+            output2 = model(tokens2, lengths2)
 
             # Compute the loss
-            loss = criterion(output1, output2, label)
+            loss = criterion(output1, output2, labels)
             total_loss += loss.item()
 
             pred, dists = similarity(output1, output2)
             pred = convert_bool_tensor(pred)
 
             # Compute the predictions
-            all_labels.append(label.cpu())
+            all_labels.append(labels.cpu())
             all_preds.append(pred.cpu())
             all_dists.append(dists.cpu())
 
-            all_first1.extend(first1)
-            all_last1.extend(last1)
-            all_email1.extend(email1)
-            all_first2.extend(first2)
-            all_last2.extend(last2)
-            all_email2.extend(email2)
+            for i in idx:
+                all_field_data.append(
+                    data_module.val_dataset.get_field_values(i.item())
+                )
 
     all_labels = torch.cat(all_labels).numpy()
     all_preds = torch.cat(all_preds).numpy()
     all_dists = torch.cat(all_dists).numpy()
+
+    all_field_data = pd.DataFrame(all_field_data)
 
     # Compute the average loss over the entire evaluation dataset
     avg_loss = total_loss / len(eval_data_loader)
@@ -123,12 +110,7 @@ def eval_model(
             all_preds,
             all_labels,
             all_dists,
-            all_first1,
-            all_last1,
-            all_email1,
-            all_first2,
-            all_last2,
-            all_email2,
+            all_field_data,
             report_filename,
             "Report",
         )
@@ -137,13 +119,15 @@ def eval_model(
 
 
 if __name__ == "__main__":
-    char_to_int, chars = create_char_to_int()
+    data_module = ContactDataModule(batch_size=EVAL_BATCH_SIZE)
+    data_module.prepare_data()
+    data_module.setup(stage="validate")
 
     # Create model instance
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Found device {device}")
 
-    model = ContactEncoder(len(chars))
+    model = ContactEncoder(len(data_module.vocabulary))
     if os.path.exists(SAVED_MODEL_CONFIG_FNAME):
         print("Found existing model weights.")
         model.load_state_dict(torch.load(SAVED_MODEL_CONFIG_FNAME))
@@ -155,17 +139,10 @@ if __name__ == "__main__":
     # Define the optimizer and criterion
     criterion = LOSS_FUNCTION(MARGIN)
 
-    # Create the DataLoader
-    eval_data_loader = DataLoader(
-        NameDataset("data/eval.csv", char_to_int, debug=True),
-        batch_size=EVAL_BATCH_SIZE,
-        shuffle=False,
-    )
-
     eval_loss, precision, recall, f1 = eval_model(
         model,
         device,
-        eval_data_loader,
+        data_module.val_dataloader(),
         criterion,
         SIMILARITY_METRIC(0.5, return_distance=True),
         report_filename="report.html",

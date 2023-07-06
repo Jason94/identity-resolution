@@ -7,10 +7,10 @@ from torchinfo import summary
 from tqdm import tqdm
 import json
 
-from model import create_char_to_int, ContactEncoder
+from model import ContactEncoder
 from eval import eval_model
 from config import *
-from data import NameDataset
+from data import ContactDataModule
 
 N_EPOCHS = 6
 TRAIN_BATCH_SIZE = 64
@@ -80,21 +80,21 @@ def save_configs(configs, epoch: Optional[int] = None, fname: Optional[str] = No
 
 def train_model(
     model,
-    data_loader: DataLoader,
-    eval_data_loader: DataLoader,
+    data_module: ContactDataModule,
     optimizer,
     criterion,
     device: torch.device = torch.device("cpu"),
     n_epochs=N_EPOCHS,
     start_epoch=0,
 ):
+    data_loader = data_module.train_dataloader()
     n_epochs = n_epochs + start_epoch
 
     if start_epoch == 0:
         eval_loss, precision, recall, f1 = eval_model(
             model,
             device,
-            eval_data_loader,
+            data_module,
             criterion,
             SIMILARITY_METRIC(0.5, return_distance=True),
         )
@@ -103,7 +103,7 @@ def train_model(
             0,
             n_epochs,
             model,
-            eval_data_loader.dataset[0],
+            data_loader.dataset[0],
             optimizer,
             criterion,
             eval_loss,
@@ -121,26 +121,18 @@ def train_model(
         model.train()
         total_loss = 0.0
 
-        for (
-            (name1_tensor, len1, email1_tensor, len_email1),
-            (name2_tensor, len2, email2_tensor, len_email2),
-            label,
-        ) in tqdm(data_loader, leave=False):
-            # Move tensors to the device
-            name1_tensor = name1_tensor.to(device)
-            name2_tensor = name2_tensor.to(device)
-            email1_tensor = email1_tensor.to(device)
-            email2_tensor = email2_tensor.to(device)
-            label = label.to(device)
+        for batch in tqdm(data_loader, leave=False):
+            batch = data_module.transfer_batch_to_device(batch, device, 0)
+            (tokens1, lengths1, tokens2, lengths2, labels) = batch
 
             optimizer.zero_grad()
 
             # Forward pass through the model
-            output1 = model(name1_tensor, len1, email1_tensor, len_email1)
-            output2 = model(name2_tensor, len2, email2_tensor, len_email2)
+            output1 = model(tokens1, lengths1)
+            output2 = model(tokens2, lengths2)
 
             # Calculate loss
-            loss = criterion(output1, output2, label.float())
+            loss = criterion(output1, output2, labels)
             total_loss += loss
 
             # Backward pass and optimization
@@ -152,7 +144,7 @@ def train_model(
         eval_loss, precision, recall, f1 = eval_model(
             model,
             device,
-            eval_data_loader,
+            data_module,
             criterion,
             SIMILARITY_METRIC(0.5, return_distance=True),
         )
@@ -166,7 +158,7 @@ def train_model(
                 epoch + 1,
                 n_epochs,
                 model,
-                eval_data_loader.dataset[0],
+                data_loader.dataset[0],
                 optimizer,
                 criterion,
                 eval_loss,
@@ -180,13 +172,17 @@ def train_model(
 
 
 if __name__ == "__main__":
-    char_to_int, chars = create_char_to_int()
+    data_module = ContactDataModule(
+        batch_size=TRAIN_BATCH_SIZE,
+    )
+    data_module.prepare_data()
+    data_module.setup(stage="fit", return_eval_fields=True)
 
     # Create model instance
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Found device {device}")
 
-    model = ContactEncoder(len(chars))
+    model = ContactEncoder(len(data_module.vocabulary))
     if os.path.exists(SAVED_MODEL_FNAME):
         print("Found existing model weights. Starting from there.")
         model.load_state_dict(torch.load(SAVED_MODEL_FNAME))
@@ -201,24 +197,11 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = LOSS_FUNCTION(margin=MARGIN)
 
-    # Create the DataLoader
-    data_loader = DataLoader(
-        NameDataset("data/training.csv", char_to_int),
-        batch_size=TRAIN_BATCH_SIZE,
-        shuffle=True,
-    )
-    eval_data_loader = DataLoader(
-        NameDataset("data/eval.csv", char_to_int, debug=True),
-        batch_size=TRAIN_BATCH_SIZE,
-        shuffle=True,
-    )
-
     # Train the model
     start_epoch = model_config.get("training_config", {}).get("current_epoch", 0)
     final_config = train_model(
         model,
-        data_loader,
-        eval_data_loader,
+        data_module,
         optimizer,
         criterion,
         device,
