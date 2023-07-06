@@ -5,14 +5,15 @@ import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelSummary
 from lightning.pytorch.callbacks import ModelCheckpoint
 from sklearn.metrics import precision_score, recall_score, f1_score
+from argparse import Namespace
+from pytorch_lightning.loggers import TensorBoardLogger
 
+
+from contrastive_metric import ContrastiveLoss, is_duplicate
 from model import ContactEncoder
 from config import *
 from data import ContactDataModule
-
-N_EPOCHS = 10
-TRAIN_BATCH_SIZE = 64
-LEARNING_RATE = 0.00005
+from model_cli import make_parser
 
 
 def convert_bool_tensor(tensor):
@@ -25,20 +26,38 @@ def convert_bool_tensor(tensor):
 class PlContactEncoder(pl.LightningModule):
     def __init__(
         self,
-        encoder: ContactEncoder,
+        hyperparameters: Namespace,
+        encoder: Optional[ContactEncoder] = None,
         loss_function: Optional[
-            Callable[[torch.Tensor, torch.Tensor, int], torch.Tensor]
+            Callable[[float], Callable[[torch.Tensor, torch.Tensor, int], torch.Tensor]]
         ] = None,
         similarity_function: Optional[
-            Callable[[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]
+            Callable[
+                [float],
+                Callable[
+                    [torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]
+                ],
+            ]
         ] = None,
-        lr: float = 1e-5,
     ):
         super().__init__()
-        self.encoder = encoder
-        self.loss_function = loss_function
-        self.similarity_function = similarity_function
-        self.lr = lr
+
+        # If we got passed an encoder, then we should 'absorb' its hyperparameters.
+        if encoder:
+            self.encoder = encoder
+            hyperparameters = Namespace(
+                **{**vars(hyperparameters), **encoder.hyperparameters()}
+            )
+            self.save_hyperparameters(hyperparameters)
+        # If we only got hyperparameters, create a new ContactEncoder.
+        else:
+            self.encoder = ContactEncoder.from_namespace(hyperparameters)
+            self.save_hyperparameters(hyperparameters)
+
+        # Create loss function from the margin hyperparameter
+        self.loss_function = loss_function(hyperparameters.margin)  # type: ignore
+        # Create similarity function from the duplicate thershold hyperparameter
+        self.similarity_function = similarity_function(hyperparameters.threshold)  # type: ignore
 
         # --- Evaluation Performance Data
         self.validation_labels = []
@@ -97,37 +116,58 @@ class PlContactEncoder(pl.LightningModule):
         self.validation_preds.clear()
 
     def configure_optimizers(self) -> Any:
-        optimizer = optim.Adam(self.parameters(), lr=self.lr)
+        optimizer = optim.Adam(self.parameters(), lr=self.hparams.learning_rate)  # type: ignore
         return optimizer
 
 
-if __name__ == "__main__":
-    # Load the data
-    data_module = ContactDataModule(batch_size=TRAIN_BATCH_SIZE)
-
+def train(
+    args: Namespace, data_module: ContactDataModule, logger: Optional[Any] = None
+):
     # Create model instance
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Found device {device}")
 
-    model = ContactEncoder(len(data_module.vocabulary), p_dropout=0.0)
-    print("Initializing random weights.")
-    model.to(device)
-
-    criterion = LOSS_FUNCTION(margin=MARGIN)
-
     lightning_model = PlContactEncoder(
-        model,
-        criterion,
-        SIMILARITY_METRIC(0.5, return_distance=True),
-        LEARNING_RATE,
+        hyperparameters=args,
+        loss_function=ContrastiveLoss,
+        similarity_function=is_duplicate,
     )
     lightning_model.to(device)
 
     checkpoint_callback = ModelCheckpoint(
-        save_top_k=-1, filename="{epoch:02d}-{val_f1:.4f}", every_n_epochs=2
+        save_top_k=2,
+        monitor="val_f1",
+        mode="max",
+        filename="{epoch:02d}---{val_loss:.4f}-{val_f1:.4f}",
+        every_n_epochs=2,
     )
 
     trainer = pl.Trainer(
-        max_epochs=N_EPOCHS, callbacks=[ModelSummary(max_depth=-1), checkpoint_callback]
+        max_epochs=args.num_epochs,
+        callbacks=[ModelSummary(max_depth=-1), checkpoint_callback],
+        logger=logger,
     )
     trainer.fit(model=lightning_model, datamodule=data_module)
+
+
+def margin_experiment(args: Namespace):
+    for margin in [1.0 + x / 2 for x in range(0, (8 - 1) * 2)]:
+        scenario_args = Namespace(**{**vars(args), "margin": margin})
+
+        for i in range(0, 3):
+            print(f"Experiment {i}: margin={margin}")
+            logger = TensorBoardLogger(
+                save_dir="", version=f"margin_{margin:0.2f}__{i}"
+            )
+            # Load the data
+            train(scenario_args, data_module, logger=logger)
+
+
+if __name__ == "__main__":
+    parser = make_parser()
+    args = parser.parse_args()
+
+    data_module = ContactDataModule(batch_size=args.batch_size)
+    args.vocab_size = len(data_module.vocabulary)
+
+    train(args, data_module)

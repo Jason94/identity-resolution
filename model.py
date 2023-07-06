@@ -3,6 +3,8 @@ import torch
 from torch import nn
 from torchvision.ops import MLP
 import math
+from argparse import Namespace
+
 
 from config import MAX_NAME_LENGTH, MAX_EMAIL_LENGTH
 
@@ -68,10 +70,18 @@ class ContactEncoder(nn.Module):
 
         return positional_encoding
 
-    def create_attn_mask(self, lengths, max_len):
-        raw = torch.arange(max_len)[None, :].to(self.device())
-        mask = raw >= lengths[:, None]
-        return mask.bool()
+    @staticmethod
+    def from_namespace(namespace: Namespace):
+        return ContactEncoder(
+            vocab_size=namespace.vocab_size,
+            embedding_dim=namespace.embedding_dim,
+            n_heads_attn=namespace.n_heads_attn,
+            attn_dim=namespace.attn_dim,
+            norm_eps=namespace.norm_eps,
+            output_embedding_dim=namespace.output_embedding_dim,
+            output_mlp_layers=namespace.output_mlp_layers,
+            p_dropout=namespace.p_dropout,
+        )
 
     def __init__(
         self,
@@ -134,6 +144,23 @@ class ContactEncoder(nn.Module):
             nn.Dropout(p_dropout),
             nn.Linear(attn_dim, output_embedding_dim),
         )
+
+    def create_attn_mask(self, lengths, max_len):
+        raw = torch.arange(max_len)[None, :].to(self.device())
+        mask = raw >= lengths[:, None]
+        return mask.bool()
+
+    def hyperparameters(self) -> dict:
+        return {
+            "vocab_size": self.vocab_size,
+            "embedding_dim": self.embedding_dim,
+            "n_heads_attn": self.n_heads_attn,
+            "attn_dim": self.attn_dim,
+            "norm_eps": self.norm_eps,
+            "output_embedding_dim": self.output_embedding_dim,
+            "output_mlp_layers": self.output_mlp_layers,
+            "p_dropout": self.p_dropout,
+        }
 
     def device(self):
         return next(self.parameters()).device

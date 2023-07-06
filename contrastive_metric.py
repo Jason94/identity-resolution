@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.nn.functional import pairwise_distance
 
 
-def is_duplicate(threshold, return_distance=False):
+def is_duplicate(threshold, return_distance=True):
     """
     Create a function to determine if two embeddings represent the same class (a duplicate) or not.
 
