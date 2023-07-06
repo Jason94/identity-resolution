@@ -9,11 +9,9 @@ from model import ContactEncoder
 from config import *
 from data import ContactDataModule
 
-N_EPOCHS = 3
+N_EPOCHS = 6
 TRAIN_BATCH_SIZE = 64
 LEARNING_RATE = 0.00005
-
-CHECKPOINT_PERIOD = 6
 
 
 def convert_bool_tensor(tensor):

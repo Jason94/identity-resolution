@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Callable
 from sklearn.metrics import precision_score, recall_score, f1_score
 import os
 import sys
@@ -8,8 +8,7 @@ import pandas as pd
 
 from model import ContactEncoder
 from config import *
-from data import ContactDataModule
-from report import create_html_report
+from data import ContactDataModule, create_char_tokenizer
 
 
 def convert_bool_tensor(tensor):
@@ -25,7 +24,7 @@ def eval_model(
     data_module: ContactDataModule,
     criterion,
     similarity,
-    report_filename: Optional[str] = None,
+    report_callback: Optional[Callable],
 ):
     """
     Evaluate the performance of a model on a given dataset.
@@ -105,48 +104,13 @@ def eval_model(
     recall = recall_score(all_labels, all_preds)
     f1 = f1_score(all_labels, all_preds)
 
-    if report_filename:
-        create_html_report(
+    if report_callback:
+        report_callback(
             all_preds,
             all_labels,
             all_dists,
             all_field_data,
-            report_filename,
             "Report",
         )
 
     return avg_loss, precision, recall, f1
-
-
-if __name__ == "__main__":
-    data_module = ContactDataModule(batch_size=EVAL_BATCH_SIZE)
-    data_module.prepare_data()
-    data_module.setup(stage="validate", return_eval_fields=True)
-
-    # Create model instance
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Found device {device}")
-
-    model = ContactEncoder(len(data_module.vocabulary))
-    if os.path.exists(SAVED_MODEL_FNAME):
-        print("Found existing model weights.")
-        model.load_state_dict(torch.load(SAVED_MODEL_FNAME))
-    else:
-        print("No model found. Exiting.")
-        sys.exit()
-    model.to(device)
-
-    # Define the optimizer and criterion
-    criterion = LOSS_FUNCTION(MARGIN)
-
-    eval_loss, precision, recall, f1 = eval_model(
-        model,
-        device,
-        data_module,
-        criterion,
-        SIMILARITY_METRIC(0.5, return_distance=True),
-        report_filename="report.html",
-    )
-    print(
-        f"Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
-    )

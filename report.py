@@ -1,8 +1,20 @@
+from typing import Optional
+import os
+import sys
+import torch
 import matplotlib.pyplot as plt
-import pandas as pd
 import seaborn as sns
 import base64
 from io import BytesIO
+
+
+from model import ContactEncoder
+from config import *
+from data import ContactDataModule, create_char_tokenizer
+from train import PlContactEncoder
+from eval import eval_model
+
+REPORT_FILENAME = "report.html"
 
 
 def embed_matplotlib_figure(fig):
@@ -18,7 +30,6 @@ def create_html_report(
     all_labels,
     all_dists,
     report_df,
-    file_name,
     title: str,
 ):
     report_df["distance"] = all_dists
@@ -98,7 +109,7 @@ def create_html_report(
         ]
     )
 
-    with open(file_name, "w", encoding="utf-8", errors="replace") as f:
+    with open(REPORT_FILENAME, "w", encoding="utf-8", errors="replace") as f:
         f.write(
             f"""
         <html>
@@ -121,3 +132,42 @@ def create_html_report(
         </html>
         """
         )
+
+
+if __name__ == "__main__":
+    tokenizer, vocabulary = create_char_tokenizer()
+
+    data_module = ContactDataModule(batch_size=EVAL_BATCH_SIZE)
+    data_module.prepare_data()
+    data_module.setup(stage="validate", return_eval_fields=True)
+
+    # Create model instance
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Found device {device}")
+
+    model_fname = model_path("model.ckpt")
+    if not os.path.exists(model_fname):
+        print("Could not find model.")
+        sys.exit()
+
+    pl_model = PlContactEncoder.load_from_checkpoint(
+        model_fname, encoder=ContactEncoder(len(vocabulary))
+    )
+
+    model = pl_model.encoder
+    model.to(device)
+
+    # Define the optimizer and criterion
+    criterion = LOSS_FUNCTION(MARGIN)
+
+    eval_loss, precision, recall, f1 = eval_model(
+        model,
+        device,
+        data_module,
+        criterion,
+        SIMILARITY_METRIC(0.5, return_distance=True),
+        report_callback=create_html_report,
+    )
+    print(
+        f"Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
+    )
