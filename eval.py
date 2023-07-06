@@ -1,4 +1,4 @@
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple
 from sklearn.metrics import precision_score, recall_score, f1_score
 import os
 import sys
@@ -25,7 +25,7 @@ def eval_model(
     criterion,
     similarity,
     report_callback: Optional[Callable],
-):
+) -> Tuple[float, float, float, float, pd.DataFrame]:
     """
     Evaluate the performance of a model on a given dataset.
 
@@ -94,6 +94,8 @@ def eval_model(
     all_preds = torch.cat(all_preds).numpy()
     all_dists = torch.cat(all_dists).numpy()
 
+    incorrect_mask = all_labels != all_preds
+
     all_field_data = pd.DataFrame(all_field_data)
 
     # Compute the average loss over the entire evaluation dataset
@@ -113,4 +115,13 @@ def eval_model(
             "Report",
         )
 
-    return avg_loss, precision, recall, f1
+    # Create a DataFrame of labels and predictions
+    results_df = pd.DataFrame({"labels": all_labels, "predictions": all_preds})
+
+    # Add the field data to the results DataFrame
+    results_df = pd.concat([results_df, all_field_data], axis=1)
+
+    # Filter the DataFrame to include only incorrect predictions
+    incorrect_df = results_df[results_df["labels"] != results_df["predictions"]]
+
+    return avg_loss, precision, recall, f1, incorrect_df  # type: ignore

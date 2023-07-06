@@ -3,13 +3,14 @@ import torch
 from torch import optim
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelSummary
+from lightning.pytorch.callbacks import ModelCheckpoint
 from sklearn.metrics import precision_score, recall_score, f1_score
 
 from model import ContactEncoder
 from config import *
 from data import ContactDataModule
 
-N_EPOCHS = 6
+N_EPOCHS = 10
 TRAIN_BATCH_SIZE = 64
 LEARNING_RATE = 0.00005
 
@@ -122,5 +123,11 @@ if __name__ == "__main__":
     )
     lightning_model.to(device)
 
-    trainer = pl.Trainer(max_epochs=N_EPOCHS, callbacks=[ModelSummary(max_depth=-1)])
+    checkpoint_callback = ModelCheckpoint(
+        save_top_k=-1, filename="{epoch:02d}-{val_f1:.4f}", every_n_epochs=2
+    )
+
+    trainer = pl.Trainer(
+        max_epochs=N_EPOCHS, callbacks=[ModelSummary(max_depth=-1), checkpoint_callback]
+    )
     trainer.fit(model=lightning_model, datamodule=data_module)

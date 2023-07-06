@@ -5,7 +5,9 @@ import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
 import base64
+import pandas as pd
 from io import BytesIO
+import argparse
 
 
 from model import ContactEncoder
@@ -135,11 +137,25 @@ def create_html_report(
 
 
 if __name__ == "__main__":
+    # Add argparse for CLI interactions
+    parser = argparse.ArgumentParser(description="Contact Data Evaluation Script")
+    parser.add_argument(
+        "--filename",
+        default="prepared_val_data.csv",
+        type=str,
+        help="CSV filename in the data directory",
+    )
+    parser.add_argument(
+        "--failed",
+        action="store_true",
+        help="Output a CSV with the rows the model got wrong",
+    )
+    args = parser.parse_args()
+
     tokenizer, vocabulary = create_char_tokenizer()
 
     data_module = ContactDataModule(batch_size=EVAL_BATCH_SIZE)
-    data_module.prepare_data()
-    data_module.setup(stage="validate", return_eval_fields=True)
+    data_module.setup(stage="validate", return_eval_fields=True, val_file=args.filename)
 
     # Create model instance
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -160,7 +176,7 @@ if __name__ == "__main__":
     # Define the optimizer and criterion
     criterion = LOSS_FUNCTION(MARGIN)
 
-    eval_loss, precision, recall, f1 = eval_model(
+    eval_loss, precision, recall, f1, incorrect_df = eval_model(
         model,
         device,
         data_module,
@@ -168,6 +184,12 @@ if __name__ == "__main__":
         SIMILARITY_METRIC(0.5, return_distance=True),
         report_callback=create_html_report,
     )
+
+    if args.failed:
+        incorrect_df.to_csv(
+            os.path.join(data_module.data_dir, "failed_records.csv"), index=False
+        )
+
     print(
         f"Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
     )
