@@ -13,7 +13,7 @@ from report import create_html_report
 
 
 def convert_bool_tensor(tensor):
-    ones = torch.ones_like(tensor, dtype=torch.float32)
+    ones = torch.ones_like(tensor, dtype=torch.int)
     minus_ones = -1 * ones
     converted_tensor = torch.where(tensor, ones, minus_ones)
     return converted_tensor
@@ -68,43 +68,39 @@ def eval_model(
 
     with torch.no_grad():
         for batch in tqdm(eval_data_loader, leave=False):
-            # Unpack batch and move to the device
-            (
-                (name1_tensor, len1, email1_tensor, len_email1),
-                (name2_tensor, len2, email2_tensor, len_email2),
-                label,
-                (first1, last1, email1),
-                (first2, last2, email2),
-            ) = batch
+            (tokens1, lengths1, tokens2, lengths2, labels) = batch
 
-            name1_tensor = name1_tensor.to(device)
-            name2_tensor = name2_tensor.to(device)
-            email1_tensor = email1_tensor.to(device)
-            email2_tensor = email2_tensor.to(device)
-            label = label.to(device)
+            # Move tensors to the device
+            (tokens1, lengths1, tokens2, lengths2, labels) = (
+                [t.to(device) for t in tokens1],
+                [t.to(device) for t in lengths1],
+                [t.to(device) for t in tokens2],
+                [t.to(device) for t in lengths2],
+                labels.to(device),
+            )
 
             # Forward pass through the model
-            output1 = model(name1_tensor, len1, email1_tensor, len_email1)
-            output2 = model(name2_tensor, len2, email2_tensor, len_email2)
+            output1 = model(tokens1, lengths1)
+            output2 = model(tokens2, lengths2)
 
             # Compute the loss
-            loss = criterion(output1, output2, label)
+            loss = criterion(output1, output2, labels)
             total_loss += loss.item()
 
             pred, dists = similarity(output1, output2)
             pred = convert_bool_tensor(pred)
 
             # Compute the predictions
-            all_labels.append(label.cpu())
+            all_labels.append(labels.cpu())
             all_preds.append(pred.cpu())
             all_dists.append(dists.cpu())
 
-            all_first1.extend(first1)
-            all_last1.extend(last1)
-            all_email1.extend(email1)
-            all_first2.extend(first2)
-            all_last2.extend(last2)
-            all_email2.extend(email2)
+            # all_first1.extend(first1)
+            # all_last1.extend(last1)
+            # all_email1.extend(email1)
+            # all_first2.extend(first2)
+            # all_last2.extend(last2)
+            # all_email2.extend(email2)
 
     all_labels = torch.cat(all_labels).numpy()
     all_preds = torch.cat(all_preds).numpy()
@@ -138,6 +134,8 @@ def eval_model(
 
 if __name__ == "__main__":
     data_module = ContactDataModule(batch_size=EVAL_BATCH_SIZE)
+    data_module.prepare_data()
+    data_module.setup(stage="validate")
 
     # Create model instance
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -162,14 +160,14 @@ if __name__ == "__main__":
     #     shuffle=False,
     # )
 
-    # eval_loss, precision, recall, f1 = eval_model(
-    #     model,
-    #     device,
-    #     eval_data_loader,
-    #     criterion,
-    #     SIMILARITY_METRIC(0.5, return_distance=True),
-    #     report_filename="report.html",
-    # )
-    # print(
-    #     f"Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
-    # )
+    eval_loss, precision, recall, f1 = eval_model(
+        model,
+        device,
+        data_module.val_dataloader(),
+        criterion,
+        SIMILARITY_METRIC(0.5, return_distance=True),
+        report_filename="report.html",
+    )
+    print(
+        f"Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
+    )

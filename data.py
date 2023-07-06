@@ -75,7 +75,7 @@ class ContactDataset(Dataset):
             tokens2.append(record[f"{f.field}_tokens2"])
             lengths2.append(record[f"{f.field}_length2"])
 
-        return tokens1, lengths1, tokens2, lengths2, torch.tensor([label])
+        return tokens1, lengths1, tokens2, lengths2, label
 
 
 class ContactDataModule(pl.LightningDataModule):
@@ -246,7 +246,10 @@ class ContactDataModule(pl.LightningDataModule):
             raise NotImplementedError(f"Have not implemented data stage {stage}")
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=False)
+        # return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=False)
+        return DataLoader(
+            ContactDataset(self.train_dataset.data[0:2], self.train_dataset.fields)
+        )
 
     def val_dataloader(self) -> EVAL_DATALOADERS:
         return DataLoader(self.val_dataset, batch_size=self.batch_size)
