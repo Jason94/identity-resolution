@@ -162,12 +162,8 @@ class ContactEncoder(nn.Module):
         combined_field_embeddings = torch.cat([expanded_name, expanded_email], dim=1)
 
         # Create the attention mask
-        name_attn_mask = self.create_attn_mask(lengths, expanded_name.size(1)).to(
-            self.device()
-        )
-        email_attn_mask = self.create_attn_mask(
-            email_lengths, expanded_email.size(1)
-        ).to(self.device())
+        name_attn_mask = self.create_attn_mask(lengths, expanded_name.size(1))
+        email_attn_mask = self.create_attn_mask(email_lengths, expanded_email.size(1))
         attn_mask = torch.cat([name_attn_mask, email_attn_mask], dim=1)
 
         # Add the positional information

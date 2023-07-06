@@ -170,3 +170,6 @@ models/*
 
 # don't save the repo summary
 repository_summary.txt
+
+# Don't save lightning logs
+lightning_logs/
