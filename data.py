@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Callable, List
+from typing import Any, Callable, Dict, List, Tuple
 from lightning.pytorch.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -19,14 +19,14 @@ logger.setLevel(logging.INFO)
 PAD_CHARACTER = "\0"
 
 
-def create_char_tokenizer():
+def create_char_tokenizer() -> Tuple[Dict[str, int], List[str]]:
     # Create a list of all ASCII printable characters.
-    chars = list(string.printable) + [PAD_CHARACTER]
+    vocabulary = list(string.printable) + [PAD_CHARACTER]
 
     # Create a dictionary that maps each character to a unique integer.
-    char_to_int = {char: i for i, char in enumerate(chars)}
+    tokenizer = {char: i for i, char in enumerate(vocabulary)}
 
-    return char_to_int, chars
+    return tokenizer, vocabulary
 
 
 @dataclass
@@ -94,7 +94,7 @@ class ContactDataset(Dataset):
 
 class ContactDataModule(pl.LightningDataModule):
     @staticmethod
-    def _is_valid(string: str) -> bool:
+    def is_valid(string: str) -> bool:
         # Remove non-ascii entries
         for c in string:
             if not (0 <= ord(c) <= 127):
@@ -103,9 +103,9 @@ class ContactDataModule(pl.LightningDataModule):
         return True
 
     @staticmethod
-    def _valid_row(row: dict) -> bool:
+    def valid_row(row: dict) -> bool:
         for s in row.values():
-            if not ContactDataModule._is_valid(s):
+            if not ContactDataModule.is_valid(s):
                 return False
 
         return True
@@ -114,12 +114,41 @@ class ContactDataModule(pl.LightningDataModule):
     def _read_data(filename):
         with open(filename, "r", encoding="utf8") as file:
             reader = csv.DictReader(file)
-            data = [row for row in reader if ContactDataModule._valid_row(row)]
+            data = [row for row in reader if ContactDataModule.valid_row(row)]
         return data
 
     @staticmethod
     def _preprocess_field_text(field_text: str) -> str:
         return field_text.lower()
+
+    @staticmethod
+    def field_tokenizer(
+        field: Field, tokenizer: Dict[str, int]
+    ) -> Callable[[dict], pd.Series]:
+        def _tokenize(row: dict) -> pd.Series:
+            data = []
+            indices = []
+            for i in ["1", "2"]:
+                full_text = " ".join(
+                    [row[subfield + i] for subfield in field.subfield_labels]
+                )
+                full_text = ContactDataModule._preprocess_field_text(full_text)
+                non_pad_length = len(full_text)
+
+                # Truncate or pad to max_length
+                full_text = full_text[: field.max_length].ljust(
+                    field.max_length, PAD_CHARACTER
+                )
+
+                # Convert to a list of character tokens
+                tokens = [tokenizer[c] for c in full_text]
+
+                data.extend([tokens, non_pad_length])
+                indices.extend([f"{field.field}_tokens{i}", f"{field.field}_length{i}"])
+
+            return pd.Series(data, index=indices)
+
+        return _tokenize
 
     def __init__(
         self,
@@ -142,35 +171,6 @@ class ContactDataModule(pl.LightningDataModule):
         self.p_validation = p_validation
 
         self._val_dataloader = None
-
-    def _tokenize_field(self, field: Field) -> Callable[[dict], pd.Series]:
-        def _tokenize(row: dict) -> pd.Series:
-            data = []
-            indices = []
-            for i in ["1", "2"]:
-                full_text = " ".join(
-                    [row[subfield + i] for subfield in field.subfield_labels]
-                )
-                full_text = self._preprocess_field_text(full_text)
-                non_pad_length = len(full_text)
-
-                # Truncate or pad to max_length
-                full_text = full_text[: field.max_length].ljust(
-                    field.max_length, PAD_CHARACTER
-                )
-
-                # Convert to a list of character tokens
-                tokens = [self.tokenize[c] for c in full_text]
-
-                # Convert to a '|' delimited list for saving
-                tokens = "|".join([str(t) for t in tokens])
-
-                data.extend([tokens, non_pad_length])
-                indices.extend([f"{field.field}_tokens{i}", f"{field.field}_length{i}"])
-
-            return pd.Series(data, index=indices)
-
-        return _tokenize
 
     def prepare_data(
         self,
@@ -220,7 +220,12 @@ class ContactDataModule(pl.LightningDataModule):
 
         for field in self.fields:
             logger.info(f"Tokenizing {field.field} field")
-            df = df.join(df.apply(self._tokenize_field(field), axis=1))
+            df = df.join(df.apply(self.field_tokenizer(field, self.tokenize), axis=1))
+
+            # Convert to a '|' delimited list for saving
+            for i in ["1", "2"]:
+                col = f"{field.field}_tokens{i}"
+                df[col] = df[col].map(lambda tokens: "|".join([str(t) for t in tokens]))
 
             if self.preserve_text_fields:
                 for i in ["1", "2"]:

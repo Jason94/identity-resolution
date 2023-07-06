@@ -1,4 +1,4 @@
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Optional, Tuple
 import torch
 from torch import optim
 import lightning.pytorch as pl
@@ -27,10 +27,12 @@ class PlContactEncoder(pl.LightningModule):
     def __init__(
         self,
         encoder: ContactEncoder,
-        loss_function: Callable[[torch.Tensor, torch.Tensor, int], torch.Tensor],
-        similarity_function: Callable[
-            [torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]
-        ],
+        loss_function: Optional[
+            Callable[[torch.Tensor, torch.Tensor, int], torch.Tensor]
+        ] = None,
+        similarity_function: Optional[
+            Callable[[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]
+        ] = None,
         lr: float = 1e-5,
     ):
         super().__init__()
@@ -44,6 +46,9 @@ class PlContactEncoder(pl.LightningModule):
         self.validation_preds = []
 
     def training_step(self, batch, batch_idx):
+        if not self.loss_function:
+            raise RuntimeError("Not configured for training!")
+
         (tokens1, lengths1, tokens2, lengths2, labels) = batch
 
         # Forward pass through the model
@@ -58,6 +63,9 @@ class PlContactEncoder(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx) -> None:
+        if not self.loss_function or not self.similarity_function:
+            raise RuntimeError("Not configured for evaluating!")
+
         (tokens1, lengths1, tokens2, lengths2, labels) = batch
 
         # Forward pass through the model

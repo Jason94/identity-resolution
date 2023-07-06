@@ -20,3 +20,11 @@ SIMILARITY_THRESHOLD = 0.5
 
 MARGIN = 2.0
 LOSS_FUNCTION = ContrastiveLoss
+
+### --- IO & Logging
+
+MODEL_DIR = "models"
+
+
+def model_path(fname: str) -> str:
+    return os.path.join(MODEL_DIR, fname)
