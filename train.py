@@ -1,16 +1,11 @@
-import os
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, Tuple
 import torch
 from torch import optim
-from torch.utils.data import DataLoader
 import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelSummary
-from tqdm import tqdm
-import json
 from sklearn.metrics import precision_score, recall_score, f1_score
 
 from model import ContactEncoder
-from eval import eval_model
 from config import *
 from data import ContactDataModule
 
