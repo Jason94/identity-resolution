@@ -17,23 +17,10 @@ def create_html_report(
     all_preds,
     all_labels,
     all_dists,
-    all_first1,
-    all_last1,
-    all_email1,
-    all_first2,
-    all_last2,
-    all_email2,
+    report_df,
     file_name,
     title: str,
 ):
-    report_df = pd.DataFrame()
-    report_df["(1) first_name"] = list(all_first1)
-    report_df["(1) last_name"] = list(all_last1)
-    report_df["(1) email"] = list(all_email1)
-    report_df["(2) first_name"] = list(all_first2)
-    report_df["(2) last_name"] = list(all_last2)
-    report_df["(2) email"] = list(all_email2)
-
     report_df["distance"] = all_dists
     report_df["eval_duplicates"] = all_preds
     report_df["label_duplicates"] = all_labels

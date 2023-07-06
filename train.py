@@ -290,7 +290,7 @@ if __name__ == "__main__":
 
     criterion = LOSS_FUNCTION(margin=MARGIN)
 
-    classic = True
+    classic = False
     lightning_model = PlContactEncoder(
         model,
         criterion,
@@ -329,8 +329,6 @@ if __name__ == "__main__":
             opt = lightning_model.configure_optimizers()
         else:
             opt = optim.Adam(the_model.parameters(), lr=LEARNING_RATE)
-
-        breakpoint()
 
         final_config = train_model(
             the_model,

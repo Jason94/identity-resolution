@@ -2,14 +2,13 @@ from dataclasses import dataclass
 from typing import Any, Callable, List
 from lightning.pytorch.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader
 import lightning.pytorch as pl
 import pandas as pd
 import csv
 import os
 import logging
 import string
-import random
 
 from config import MAX_NAME_LENGTH, MAX_EMAIL_LENGTH
 
@@ -49,9 +48,12 @@ EmailField = Field(
 
 
 class ContactDataset(Dataset):
-    def __init__(self, data: List[dict], fields: List[Field]):
+    def __init__(
+        self, data: List[dict], fields: List[Field], return_field_values: bool = False
+    ):
         self.data = data
         self.fields = fields
+        self.return_field_values = return_field_values
 
     def __len__(self):
         return len(self.data)
@@ -75,7 +77,19 @@ class ContactDataset(Dataset):
             tokens2.append(record[f"{f.field}_tokens2"])
             lengths2.append(record[f"{f.field}_length2"])
 
-        return tokens1, lengths1, tokens2, lengths2, label
+        if self.return_field_values:
+            return tokens1, lengths1, tokens2, lengths2, label, idx
+        else:
+            return tokens1, lengths1, tokens2, lengths2, label
+
+    def get_field_values(self, idx: int) -> dict:
+        field_values = {}
+
+        for f in self.fields:
+            for i in ["1", "2"]:
+                field_values[f.field + i] = self.data[idx][f.field + i]
+
+        return field_values
 
 
 class ContactDataModule(pl.LightningDataModule):
@@ -126,6 +140,8 @@ class ContactDataModule(pl.LightningDataModule):
         self.tokenize, self.vocabulary = create_char_tokenizer()
         self.preserve_text_fields = preserve_text_fields
         self.p_validation = p_validation
+
+        self._val_dataloader = None
 
     def _tokenize_field(self, field: Field) -> Callable[[dict], pd.Series]:
         def _tokenize(row: dict) -> pd.Series:
@@ -206,7 +222,19 @@ class ContactDataModule(pl.LightningDataModule):
             logger.info(f"Tokenizing {field.field} field")
             df = df.join(df.apply(self._tokenize_field(field), axis=1))
 
-            if not self.preserve_text_fields:
+            if self.preserve_text_fields:
+                for i in ["1", "2"]:
+                    if len(field.subfield_labels) > 1:
+                        indexed_subfields = [sf + i for sf in field.subfield_labels]
+                        df[field.field + i] = df[indexed_subfields].apply(
+                            lambda x: " ".join(x), axis=1
+                        )
+                    df[field.field + i] = df[field.field + i].str.slice(
+                        0, field.max_length
+                    )
+
+            # If we aren't keeping the text fields at all, or if we've already combined them, drop.
+            if not self.preserve_text_fields or len(field.subfield_labels) > 1:
                 for i in ["1", "2"]:
                     df = df.drop(columns=[sf + i for sf in field.subfield_labels])
 
@@ -217,8 +245,9 @@ class ContactDataModule(pl.LightningDataModule):
         df_train.to_csv(os.path.join(self.data_dir, train_file))
         df_val.to_csv(os.path.join(self.data_dir, val_file))
 
-    def _read_prepared_data(self, filepath: str) -> ContactDataset:
-        data = pd.read_csv(filepath).to_dict(orient="records")
+    def _read_prepared_data(self, filepath: str, **dataset_args) -> ContactDataset:
+        df = pd.read_csv(filepath, keep_default_na=False)
+        data = df.to_dict(orient="records")
 
         for row in data:
             for f in self.fields:
@@ -226,48 +255,64 @@ class ContactDataModule(pl.LightningDataModule):
                     column = f"{f.field}_tokens{i}"
                     row[column] = torch.tensor([int(t) for t in row[column].split("|")])
 
-        return ContactDataset(data, self.fields)
+        return ContactDataset(data, self.fields, **dataset_args)
 
     def setup(
         self,
         stage: str,
         train_file: str = "prepared_train_data.csv",
         val_file: str = "prepared_val_data.csv",
+        return_eval_fields: bool = False,
     ) -> None:
         if stage == "fit" or stage == "validate":
-            self.train_dataset = self._read_prepared_data(
-                os.path.join(self.data_dir, train_file)
-            )
+            if stage == "fit":
+                self.train_dataset = self._read_prepared_data(
+                    os.path.join(self.data_dir, train_file)
+                )
+
             self.val_dataset = self._read_prepared_data(
-                os.path.join(self.data_dir, val_file)
+                os.path.join(self.data_dir, val_file),
+                return_field_values=return_eval_fields,
             )
 
         else:
             raise NotImplementedError(f"Have not implemented data stage {stage}")
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:
-        # return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=False)
-        return DataLoader(
-            ContactDataset(self.train_dataset.data[0:2], self.train_dataset.fields)
-        )
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
 
-    def val_dataloader(self) -> EVAL_DATALOADERS:
-        return DataLoader(self.val_dataset, batch_size=self.batch_size)
+    def val_dataloader(
+        self,
+        memoize: bool = False,
+    ) -> EVAL_DATALOADERS:
+        if not self._val_dataloader or not memoize:
+            self._val_dataloader = DataLoader(
+                self.val_dataset, batch_size=self.batch_size
+            )
+        return self._val_dataloader
 
     def transfer_batch_to_device(
         self, batch: Any, device: torch.device, dataloader_idx: int
     ) -> Any:
-        token_tensors1, length_tensors1, token_tensors2, length_tensors2, labels = batch
+        (
+            token_tensors1,
+            length_tensors1,
+            token_tensors2,
+            length_tensors2,
+            labels,
+            *rem,
+        ) = batch
         return (
             [t.to(device) for t in token_tensors1],
             [t.to(device) for t in length_tensors1],
             [t.to(device) for t in token_tensors2],
             [t.to(device) for t in length_tensors2],
             labels.to(device),
+            *rem,
         )
 
 
 if __name__ == "__main__":
     logging.basicConfig()
-    data_module = ContactDataModule(batch_size=4)
+    data_module = ContactDataModule()
     data_module.prepare_data(overwrite=True)

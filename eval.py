@@ -3,8 +3,8 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 import os
 import sys
 import torch
-from torch.utils.data import DataLoader
 from tqdm import tqdm
+import pandas as pd
 
 from model import ContactEncoder
 from config import *
@@ -13,7 +13,7 @@ from report import create_html_report
 
 
 def convert_bool_tensor(tensor):
-    ones = torch.ones_like(tensor, dtype=torch.int)
+    ones = torch.ones_like(tensor, dtype=torch.float32)
     minus_ones = -1 * ones
     converted_tensor = torch.where(tensor, ones, minus_ones)
     return converted_tensor
@@ -22,7 +22,7 @@ def convert_bool_tensor(tensor):
 def eval_model(
     model,
     device: torch.device,
-    eval_data_loader: DataLoader,
+    data_module: ContactDataModule,
     criterion,
     similarity,
     report_filename: Optional[str] = None,
@@ -53,31 +53,22 @@ def eval_model(
                         F1 Score reaches its best value at 1 (perfect precision
                         and recall) and worst at 0.
     """
+    eval_data_loader = data_module.val_dataloader(memoize=True)
+
     model.eval()
     total_loss = 0.0
     all_labels = []
     all_preds = []
     all_dists = []
 
-    all_first1 = []
-    all_last1 = []
-    all_email1 = []
-    all_first2 = []
-    all_last2 = []
-    all_email2 = []
+    all_field_data = []
 
     with torch.no_grad():
         for batch in tqdm(eval_data_loader, leave=False):
-            (tokens1, lengths1, tokens2, lengths2, labels) = batch
+            batch = data_module.transfer_batch_to_device(batch, device, 0)
 
-            # Move tensors to the device
-            (tokens1, lengths1, tokens2, lengths2, labels) = (
-                [t.to(device) for t in tokens1],
-                [t.to(device) for t in lengths1],
-                [t.to(device) for t in tokens2],
-                [t.to(device) for t in lengths2],
-                labels.to(device),
-            )
+            # Unpack batch and move to the device
+            (tokens1, lengths1, tokens2, lengths2, labels, idx) = batch
 
             # Forward pass through the model
             output1 = model(tokens1, lengths1)
@@ -95,16 +86,16 @@ def eval_model(
             all_preds.append(pred.cpu())
             all_dists.append(dists.cpu())
 
-            # all_first1.extend(first1)
-            # all_last1.extend(last1)
-            # all_email1.extend(email1)
-            # all_first2.extend(first2)
-            # all_last2.extend(last2)
-            # all_email2.extend(email2)
+            for i in idx:
+                all_field_data.append(
+                    data_module.val_dataset.get_field_values(i.item())
+                )
 
     all_labels = torch.cat(all_labels).numpy()
     all_preds = torch.cat(all_preds).numpy()
     all_dists = torch.cat(all_dists).numpy()
+
+    all_field_data = pd.DataFrame(all_field_data)
 
     # Compute the average loss over the entire evaluation dataset
     avg_loss = total_loss / len(eval_data_loader)
@@ -119,12 +110,7 @@ def eval_model(
             all_preds,
             all_labels,
             all_dists,
-            all_first1,
-            all_last1,
-            all_email1,
-            all_first2,
-            all_last2,
-            all_email2,
+            all_field_data,
             report_filename,
             "Report",
         )
@@ -135,7 +121,7 @@ def eval_model(
 if __name__ == "__main__":
     data_module = ContactDataModule(batch_size=EVAL_BATCH_SIZE)
     data_module.prepare_data()
-    data_module.setup(stage="validate")
+    data_module.setup(stage="validate", return_eval_fields=True)
 
     # Create model instance
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -153,17 +139,10 @@ if __name__ == "__main__":
     # Define the optimizer and criterion
     criterion = LOSS_FUNCTION(MARGIN)
 
-    # # Create the DataLoader
-    # eval_data_loader = DataLoader(
-    #     NameDataset("data/eval.csv", char_to_int, debug=True),
-    #     batch_size=EVAL_BATCH_SIZE,
-    #     shuffle=False,
-    # )
-
     eval_loss, precision, recall, f1 = eval_model(
         model,
         device,
-        data_module.val_dataloader(),
+        data_module,
         criterion,
         SIMILARITY_METRIC(0.5, return_distance=True),
         report_filename="report.html",
