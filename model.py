@@ -72,7 +72,7 @@ class ContactEncoder(nn.Module):
 
     @staticmethod
     def from_namespace(namespace: Namespace):
-        fields = [lookup_field(name) for name in namespace.fields]
+        fields = [lookup_field(name) for name in namespace.field_names]
         return ContactEncoder(
             vocab_size=namespace.vocab_size,
             fields=fields,

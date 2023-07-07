@@ -171,6 +171,10 @@ class ContactDataModule(pl.LightningDataModule):
     def __init__(
         self,
         data_dir: str = "data",
+        data_lists: List[str] = [],
+        prepared_file: str = "prepared_data.csv",
+        train_file: str = "prepared_train_data.csv",
+        val_file: str = "prepared_val_data.csv",
         batch_size: int = 16,
         fields: List[Field] = ALL_FIELDS,
         balance_classes: bool = True,
@@ -180,6 +184,10 @@ class ContactDataModule(pl.LightningDataModule):
     ):
         super().__init__()
         self.data_dir = data_dir
+        self.data_lists = data_lists
+        self.prepared_file = prepared_file
+        self.train_file = train_file
+        self.val_file = val_file
         self.batch_size = batch_size
         self.fields = fields
         self.balance_classes = balance_classes
@@ -192,20 +200,16 @@ class ContactDataModule(pl.LightningDataModule):
 
     def prepare_data(
         self,
-        data_lists: List[str],
-        writefile: str = "prepared_data.csv",
-        train_file: str = "prepared_train_data.csv",
-        val_file: str = "prepared_val_data.csv",
         overwrite: bool = False,
     ) -> None:
-        writepath = os.path.join(self.data_dir, writefile)
+        writepath = os.path.join(self.data_dir, self.prepared_file)
         if os.path.exists(writepath) and not overwrite:
             logger.info(f"Prepared data already found at {writepath}.")
             return
 
-        logger.info(f"Preparing {len(data_lists)} lists")
+        logger.info(f"Preparing {len(self.data_lists)} lists")
         data = []
-        for list in data_lists:
+        for list in self.data_lists:
             filename = os.path.join(self.data_dir, list)
             file_data = self._read_data(filename)
             logger.info(f"Found {len(file_data)} valid rows in {list}.csv")
@@ -266,8 +270,8 @@ class ContactDataModule(pl.LightningDataModule):
         df_train = df.drop(df_val.index)
 
         df.to_csv(writepath)
-        df_train.to_csv(os.path.join(self.data_dir, train_file))
-        df_val.to_csv(os.path.join(self.data_dir, val_file))
+        df_train.to_csv(os.path.join(self.data_dir, self.train_file))
+        df_val.to_csv(os.path.join(self.data_dir, self.val_file))
 
     def _read_prepared_data(self, filepath: str, **dataset_args) -> ContactDataset:
         df = pd.read_csv(filepath, keep_default_na=False)
@@ -284,17 +288,15 @@ class ContactDataModule(pl.LightningDataModule):
     def setup(
         self,
         stage: str,
-        train_file: str = "prepared_train_data.csv",
-        val_file: str = "prepared_val_data.csv",
     ) -> None:
         if stage == "fit" or stage == "validate":
             if stage == "fit":
                 self.train_dataset = self._read_prepared_data(
-                    os.path.join(self.data_dir, train_file)
+                    os.path.join(self.data_dir, self.train_file)
                 )
 
             self.val_dataset = self._read_prepared_data(
-                os.path.join(self.data_dir, val_file),
+                os.path.join(self.data_dir, self.val_file),
                 return_field_values=self.return_eval_fields,
             )
 

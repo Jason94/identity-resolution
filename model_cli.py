@@ -8,15 +8,18 @@ def make_universal_args(parser: Optional[ArgumentParser] = None) -> ArgumentPars
     if parser is None:
         parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        "--fields",
+        "--field_names",
         nargs="+",
-        help="Fields passed into the model. Note that this is breaking!",
+        help=(
+            "Fields passed into the model. Note that this does affect the structure of the model."
+            " If you change this you will have to train a new model or use a checkpoint trained"
+            " with these specific fields in this specific order!"
+        ),
         default=[f.field for f in ALL_FIELDS],
     )
     return parser
 
 
-# TODO: Support this from train.py
 def make_data_args(
     parser: Optional[ArgumentParser] = None, needs_source_file: bool = False
 ) -> ArgumentParser:
@@ -86,6 +89,9 @@ def make_training_args(parser: Optional[ArgumentParser] = None) -> ArgumentParse
             " temporarily dropped out, or turned off, during training. The purpose is to"
             " prevent overfitting."
         ),
+    )
+    parser.add_argument(
+        "--version_name", type=str, help=("Name to give to this version of the model.")
     )
     return parser
 
@@ -163,6 +169,7 @@ def make_model_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
 def make_parser() -> ArgumentParser:
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     make_universal_args(parser)
+    make_data_args(parser)
     make_model_args(parser)
     make_training_args(parser)
 

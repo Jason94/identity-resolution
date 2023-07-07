@@ -12,7 +12,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from contrastive_metric import ContrastiveLoss, is_duplicate
 from model import ContactEncoder
 from config import *
-from data import ContactDataModule, Field
+from data import ContactDataModule, Field, lookup_field
 from model_cli import make_parser
 from embedding_logger import TensorBoardEmbeddingLogger
 
@@ -107,6 +107,10 @@ class PlContactEncoder(pl.LightningModule):
         # Create similarity function from the duplicate thershold hyperparameter
         self.similarity_function = self.similarity_func_factory(hyperparameters.threshold)  # type: ignore
 
+    def fields(self) -> List[Field]:
+        field_names: List[str] = self.hparams.field_names  # type: ignore
+        return [lookup_field(f_name) for f_name in field_names]  # type: ignore
+
     def training_step(self, batch, batch_idx):
         if not self.loss_function:
             raise RuntimeError("Not configured for training!")
@@ -148,7 +152,7 @@ class PlContactEncoder(pl.LightningModule):
 
         if isinstance(self.logger, TensorBoardEmbeddingLogger):
             field_data1, field_data2 = split_field_dict(
-                self.hparams.fields, transpose_dict_of_lists(field_data)  # type: ignore
+                self.fields(), transpose_dict_of_lists(field_data)  # type: ignore
             )
 
             field_data1 = [list(d.values()) for d in field_data1]
@@ -238,7 +242,13 @@ if __name__ == "__main__":
     parser = make_parser()
     args = parser.parse_args()
 
-    data_module = ContactDataModule(batch_size=args.batch_size, return_eval_fields=True)
+    data_module = ContactDataModule(
+        batch_size=args.batch_size,
+        return_eval_fields=True,
+        train_file=args.training_data,
+        val_file=args.eval_data,
+        fields=[lookup_field(f_name) for f_name in args.field_names],
+    )
     args.vocab_size = len(data_module.vocabulary)
 
     # margin_experiment(args)
@@ -246,5 +256,6 @@ if __name__ == "__main__":
         save_dir="",
         metadata_header=[f.field for f in data_module.fields],
         maximum_embeddings_to_save=10000,
+        version=args.version_name,
     )
     train(args, data_module, logger=logger)
