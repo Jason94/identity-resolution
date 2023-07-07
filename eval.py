@@ -9,6 +9,7 @@ import pandas as pd
 from model import ContactEncoder
 from config import *
 from data import ContactDataModule, create_char_tokenizer
+from utilities import transpose_dict_of_lists
 
 
 def convert_bool_tensor(tensor):
@@ -67,7 +68,7 @@ def eval_model(
             batch = data_module.transfer_batch_to_device(batch, device, 0)
 
             # Unpack batch and move to the device
-            (tokens1, lengths1, tokens2, lengths2, labels, idx) = batch
+            (tokens1, lengths1, tokens2, lengths2, labels, field_data) = batch
 
             # Forward pass through the model
             output1 = model(tokens1, lengths1)
@@ -85,16 +86,11 @@ def eval_model(
             all_preds.append(pred.cpu())
             all_dists.append(dists.cpu())
 
-            for i in idx:
-                all_field_data.append(
-                    data_module.val_dataset.get_field_values(i.item())
-                )
+            all_field_data.extend(transpose_dict_of_lists(field_data))
 
     all_labels = torch.cat(all_labels).numpy()
     all_preds = torch.cat(all_preds).numpy()
     all_dists = torch.cat(all_dists).numpy()
-
-    incorrect_mask = all_labels != all_preds
 
     all_field_data = pd.DataFrame(all_field_data)
 

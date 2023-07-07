@@ -1,20 +1,17 @@
-from typing import Optional
 import os
 import sys
 import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
 import base64
-import pandas as pd
 from io import BytesIO
-import argparse
 
-
-from model import ContactEncoder
-from config import *
-from data import ContactDataModule, create_char_tokenizer
+from config import model_path
+from data import ContactDataModule
 from train import PlContactEncoder
 from eval import eval_model
+from model_cli import make_evaluation_args
+from contrastive_metric import ContrastiveLoss, is_duplicate
 
 REPORT_FILENAME = "report.html"
 
@@ -138,12 +135,11 @@ def create_html_report(
 
 if __name__ == "__main__":
     # Add argparse for CLI interactions
-    parser = argparse.ArgumentParser(description="Contact Data Evaluation Script")
+    parser = make_evaluation_args()
     parser.add_argument(
-        "--filename",
-        default="prepared_val_data.csv",
+        "--eval_data",
         type=str,
-        help="CSV filename in the data directory",
+        help="CSV file in the data directory to use as evaluation data.",
     )
     parser.add_argument(
         "--failed",
@@ -152,36 +148,36 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    tokenizer, vocabulary = create_char_tokenizer()
-
-    data_module = ContactDataModule(batch_size=EVAL_BATCH_SIZE, return_eval_fields=True)
-    data_module.setup(stage="validate", val_file=args.filename)
-
-    # Create model instance
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Found device {device}")
-
     model_fname = model_path("model.ckpt")
     if not os.path.exists(model_fname):
         print("Could not find model.")
         sys.exit()
 
     pl_model = PlContactEncoder.load_from_checkpoint(
-        model_fname, encoder=ContactEncoder(len(vocabulary))
+        model_fname, loss_function=ContrastiveLoss, similarity_function=is_duplicate
     )
 
     model = pl_model.encoder
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Found device {device}")
+
     model.to(device)
 
-    # Define the optimizer and criterion
-    criterion = LOSS_FUNCTION(MARGIN)
+    val_file: str = args.eval_data or pl_model.hparams.eval_data  # type: ignore
+    data_module = ContactDataModule(
+        batch_size=args.batch_size,
+        return_eval_fields=True,
+        val_file=val_file,
+        fields=pl_model.fields(),
+    )
+    data_module.setup(stage="validate")
 
     eval_loss, precision, recall, f1, incorrect_df = eval_model(
         model,
         device,
         data_module,
-        criterion,
-        SIMILARITY_METRIC(0.5, return_distance=True),
+        pl_model.loss_function,
+        pl_model.similarity_function,
         report_callback=create_html_report,
     )
 

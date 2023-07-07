@@ -3,7 +3,6 @@ import sys
 from typing import List, Tuple
 import torch
 
-from model import ContactEncoder
 from train import PlContactEncoder
 from config import *
 from data import (
@@ -11,10 +10,10 @@ from data import (
     CompositeNameField,
     EmailField,
     ContactDataModule,
-    lookup_field,
     Field,
     ALL_FIELDS,
 )
+from contrastive_metric import ContrastiveLoss, is_duplicate
 
 if __name__ == "__main__":
     tokenizer, vocabulary = create_char_tokenizer()
@@ -39,7 +38,7 @@ if __name__ == "__main__":
     model.to(device)
     model.eval()
 
-    fields = [lookup_field(f) for f in pl_model.hparams_initial.fields]  # type: ignore
+    fields = pl_model.fields()
 
     i = 1
     data1 = {}

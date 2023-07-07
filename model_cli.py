@@ -55,10 +55,37 @@ def make_data_args(
     return parser
 
 
+def make_evaluation_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
+    if parser is None:
+        parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help=(
+            "Threshold value for the similarity function. Determines the cutoff point"
+            " below which two model outputs are considered similar/duplicates."
+        ),
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=64,
+        help=(
+            "Number of data points to train at once. Higher values will train faster, at the cost"
+            " of using more RAM/VRAM. Start with a higher number and lower as needed if you run out"
+            " of memory."
+        ),
+    )
+    return parser
+
+
 def make_training_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
     if parser is None:
         parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
 
+    parser = make_evaluation_args(parser)
     parser.add_argument(
         "--margin",
         type=float,
@@ -70,16 +97,6 @@ def make_training_args(parser: Optional[ArgumentParser] = None) -> ArgumentParse
     )
     parser.add_argument("--learning_rate", type=float, default=5e-5)
     parser.add_argument("--num_epochs", type=int, default=6)
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=64,
-        help=(
-            "Number of data points to train at once. Higher values will train faster, at the cost"
-            " of using more RAM/VRAM. Start with a higher number and lower as needed if you run out"
-            " of memory."
-        ),
-    )
     parser.add_argument(
         "--p_dropout",
         type=float,
@@ -174,14 +191,5 @@ def make_parser() -> ArgumentParser:
     make_training_args(parser)
 
     # -- Evaluation Arguments
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=0.5,
-        help=(
-            "Threshold value for the similarity function. Determines the cutoff point"
-            " below which two model outputs are considered similar/duplicates."
-        ),
-    )
 
     return parser
