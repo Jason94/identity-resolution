@@ -172,7 +172,6 @@ class ContactDataModule(pl.LightningDataModule):
         self,
         data_dir: str = "data",
         batch_size: int = 16,
-        data_lists: List[str] = ["duplicates", "distincts"],
         fields: List[Field] = ALL_FIELDS,
         balance_classes: bool = True,
         preserve_text_fields: bool = True,
@@ -182,7 +181,6 @@ class ContactDataModule(pl.LightningDataModule):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
-        self.data_lists = data_lists
         self.fields = fields
         self.balance_classes = balance_classes
         self.tokenize, self.vocabulary = create_char_tokenizer()
@@ -194,6 +192,7 @@ class ContactDataModule(pl.LightningDataModule):
 
     def prepare_data(
         self,
+        data_lists: List[str],
         writefile: str = "prepared_data.csv",
         train_file: str = "prepared_train_data.csv",
         val_file: str = "prepared_val_data.csv",
@@ -204,10 +203,10 @@ class ContactDataModule(pl.LightningDataModule):
             logger.info(f"Prepared data already found at {writepath}.")
             return
 
-        logger.info(f"Preparing {len(self.data_lists)} lists")
+        logger.info(f"Preparing {len(data_lists)} lists")
         data = []
-        for list in self.data_lists:
-            filename = os.path.join(self.data_dir, f"{list}.csv")
+        for list in data_lists:
+            filename = os.path.join(self.data_dir, list)
             file_data = self._read_data(filename)
             logger.info(f"Found {len(file_data)} valid rows in {list}.csv")
             data.extend(file_data)
@@ -334,9 +333,3 @@ class ContactDataModule(pl.LightningDataModule):
             labels.to(device),
             *rem,
         )
-
-
-if __name__ == "__main__":
-    logging.basicConfig()
-    data_module = ContactDataModule()
-    data_module.prepare_data(overwrite=True)

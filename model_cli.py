@@ -1,10 +1,61 @@
-from argparse import ArgumentParser
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+from typing import Optional
 
 from data import ALL_FIELDS
 
 
-def make_parser() -> ArgumentParser:
-    parser = ArgumentParser()
+def make_universal_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
+    if parser is None:
+        parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+    parser.add_argument(
+        "--fields",
+        nargs="+",
+        help="Fields passed into the model. Note that this is breaking!",
+        default=[f.field for f in ALL_FIELDS],
+    )
+    return parser
+
+
+# TODO: Support this from train.py
+def make_data_args(
+    parser: Optional[ArgumentParser] = None, needs_source_file: bool = False
+) -> ArgumentParser:
+    if parser is None:
+        parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+
+    if needs_source_file:
+        parser.add_argument(
+            "--prepared_data",
+            type=str,
+            default="prepared_data.csv",
+            help="CSV file in the data directory storing the entire prepared data.",
+        )
+        parser.add_argument(
+            "--source_files",
+            nargs="+",
+            help="CSV files in the data directory with raw field data to prepare.",
+            default=["duplicates.csv", "distincts.csv"],
+        )
+
+    parser.add_argument(
+        "--training_data",
+        type=str,
+        default="prepared_train_data.csv",
+        help="CSV file in the data directory to use as training data.",
+    )
+    parser.add_argument(
+        "--eval_data",
+        type=str,
+        default="prepared_val_data.csv",
+        help="CSV file in the data directory to use as evaluation data.",
+    )
+    return parser
+
+
+def make_training_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
+    if parser is None:
+        parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+
     parser.add_argument(
         "--margin",
         type=float,
@@ -14,12 +65,35 @@ def make_parser() -> ArgumentParser:
             " predictions that deviate from the actual labels."
         ),
     )
+    parser.add_argument("--learning_rate", type=float, default=5e-5)
+    parser.add_argument("--num_epochs", type=int, default=6)
     parser.add_argument(
-        "--fields",
-        nargs="+",
-        help="Fields passed into the model. Note that this is breaking!",
-        default=[f.field for f in ALL_FIELDS],
+        "--batch_size",
+        type=int,
+        default=64,
+        help=(
+            "Number of data points to train at once. Higher values will train faster, at the cost"
+            " of using more RAM/VRAM. Start with a higher number and lower as needed if you run out"
+            " of memory."
+        ),
     )
+    parser.add_argument(
+        "--p_dropout",
+        type=float,
+        default=0.0,
+        help=(
+            "Dropout probability. This is the probability that each neuron in the network is"
+            " temporarily dropped out, or turned off, during training. The purpose is to"
+            " prevent overfitting."
+        ),
+    )
+    return parser
+
+
+def make_model_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
+    if parser is None:
+        parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+
     parser.add_argument(
         "--embedding_dim",
         type=int,
@@ -83,30 +157,15 @@ def make_parser() -> ArgumentParser:
             " effectively the final size of the representations of each token."
         ),
     )
+    return parser
 
-    # -- Training Arguments
-    parser.add_argument("--learning_rate", type=float, default=5e-5)
-    parser.add_argument("--num_epochs", type=int, default=6)
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=64,
-        help=(
-            "Number of data points to train at once. Higher values will train faster, at the cost"
-            " of using more RAM/VRAM. Start with a higher number and lower as needed if you run out"
-            " of memory."
-        ),
-    )
-    parser.add_argument(
-        "--p_dropout",
-        type=float,
-        default=0.0,
-        help=(
-            "Dropout probability. This is the probability that each neuron in the network is"
-            " temporarily dropped out, or turned off, during training. The purpose is to"
-            " prevent overfitting."
-        ),
-    )
+
+def make_parser() -> ArgumentParser:
+    parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+    make_universal_args(parser)
+    make_model_args(parser)
+    make_training_args(parser)
+
     # -- Evaluation Arguments
     parser.add_argument(
         "--threshold",
