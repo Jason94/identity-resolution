@@ -6,7 +6,7 @@ import math
 from argparse import Namespace
 
 
-from config import MAX_NAME_LENGTH, MAX_EMAIL_LENGTH
+from data import Field, lookup_field
 
 
 class ContactEncoder(nn.Module):
@@ -72,8 +72,10 @@ class ContactEncoder(nn.Module):
 
     @staticmethod
     def from_namespace(namespace: Namespace):
+        fields = [lookup_field(name) for name in namespace.fields]
         return ContactEncoder(
             vocab_size=namespace.vocab_size,
+            fields=fields,
             embedding_dim=namespace.embedding_dim,
             n_heads_attn=namespace.n_heads_attn,
             attn_dim=namespace.attn_dim,
@@ -86,6 +88,7 @@ class ContactEncoder(nn.Module):
     def __init__(
         self,
         vocab_size,
+        fields: List[Field],
         embedding_dim=60,
         n_heads_attn=4,
         attn_dim=180,
@@ -95,6 +98,8 @@ class ContactEncoder(nn.Module):
         p_dropout=0.0,
     ):
         super(ContactEncoder, self).__init__()
+
+        self.fields = fields
 
         # --- Embedding layers
         self.embedding_dim = embedding_dim
@@ -111,8 +116,9 @@ class ContactEncoder(nn.Module):
         self.key_layer = nn.Linear(attn_dim, attn_dim)
         self.val_layer = nn.Linear(attn_dim, attn_dim)
 
+        field_lengths = sum([f.max_length for f in fields])
         self.positional_encoding = self.init_positional_encoding(
-            MAX_NAME_LENGTH + MAX_EMAIL_LENGTH, attn_dim
+            field_lengths, attn_dim
         )
 
         self.n_heads_attn = n_heads_attn
@@ -172,26 +178,22 @@ class ContactEncoder(nn.Module):
         length_tensors: List[torch.Tensor],
         *xargs
     ):
-        # For now, since we only have two fields, we'll hard-code this.
-        name_tensor = token_tensors[0]
-        email_tensor = token_tensors[1]
-        lengths = length_tensors[0]
-        email_lengths = length_tensors[1]
-
         # Generate the initial embeddings
-        embedding_name = self.embedding(name_tensor)
-        embedding_email = self.embedding(email_tensor)
-
-        expanded_name = self.fc_expand_embedding(embedding_name)
-        expanded_email = self.fc_expand_embedding(embedding_email)
+        embeddings = [self.embedding(field_tensor) for field_tensor in token_tensors]
+        expanded_embeddings = [
+            self.fc_expand_embedding(embedding) for embedding in embeddings
+        ]
 
         # Concat field embeddings along the sequence dimension, to prepare for the attention
-        combined_field_embeddings = torch.cat([expanded_name, expanded_email], dim=1)
+        combined_field_embeddings = torch.cat(expanded_embeddings, dim=1)
 
         # Create the attention mask
-        name_attn_mask = self.create_attn_mask(lengths, expanded_name.size(1))
-        email_attn_mask = self.create_attn_mask(email_lengths, expanded_email.size(1))
-        attn_mask = torch.cat([name_attn_mask, email_attn_mask], dim=1)
+        attn_masks = []
+        for i in range(0, len(self.fields)):
+            attn_masks.append(
+                self.create_attn_mask(length_tensors[i], expanded_embeddings[i].size(1))
+            )
+        attn_mask = torch.cat(attn_masks, dim=1)
 
         # Add the positional information
         batch_size, _, _ = combined_field_embeddings.shape

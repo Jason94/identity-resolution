@@ -1,5 +1,7 @@
 from argparse import ArgumentParser
 
+from data import ALL_FIELDS
+
 
 def make_parser() -> ArgumentParser:
     parser = ArgumentParser()
@@ -11,6 +13,12 @@ def make_parser() -> ArgumentParser:
             "Margin value for the loss function. Determines how much to penalize model"
             " predictions that deviate from the actual labels."
         ),
+    )
+    parser.add_argument(
+        "--fields",
+        nargs="+",
+        help="Fields passed into the model. Note that this is breaking!",
+        default=[f.field for f in ALL_FIELDS],
     )
     parser.add_argument(
         "--embedding_dim",

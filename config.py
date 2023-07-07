@@ -6,9 +6,6 @@ DISTINCT_CLASS = -1
 
 ### ---Hyperparameters
 
-## Model
-MAX_NAME_LENGTH = 50
-MAX_EMAIL_LENGTH = 35
 
 ## Training
 EVAL_BATCH_SIZE = 64

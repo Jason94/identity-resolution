@@ -10,7 +10,6 @@ import os
 import logging
 import string
 
-from config import MAX_NAME_LENGTH, MAX_EMAIL_LENGTH
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -39,12 +38,22 @@ class Field:
 CompositeNameField = Field(
     field="name",
     subfield_labels=["first_name", "last_name"],
-    max_length=MAX_NAME_LENGTH,
+    max_length=50,
 )
 
-EmailField = Field(
-    field="email", subfield_labels=["email"], max_length=MAX_EMAIL_LENGTH
-)
+EmailField = Field(field="email", subfield_labels=["email"], max_length=35)
+
+StateField = Field(field="state", subfield_labels=["state"], max_length=2)
+
+ALL_FIELDS = [CompositeNameField, EmailField, StateField]
+
+
+def lookup_field(name: str) -> Field:
+    for f in ALL_FIELDS:
+        if f.field == name:
+            return f
+
+    raise NotImplementedError(f"Unrecognized field {name}")
 
 
 class ContactDataset(Dataset):
@@ -162,7 +171,7 @@ class ContactDataModule(pl.LightningDataModule):
         data_dir: str = "data",
         batch_size: int = 16,
         data_lists: List[str] = ["duplicates", "distincts"],
-        fields: List[Field] = [CompositeNameField, EmailField],
+        fields: List[Field] = ALL_FIELDS,
         balance_classes: bool = True,
         preserve_text_fields: bool = True,
         p_validation: float = 0.2,
