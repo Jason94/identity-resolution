@@ -78,7 +78,14 @@ class ContactDataset(Dataset):
             lengths2.append(record[f"{f.field}_length2"])
 
         if self.return_field_values:
-            return tokens1, lengths1, tokens2, lengths2, label, idx
+            return (
+                tokens1,
+                lengths1,
+                tokens2,
+                lengths2,
+                label,
+                self.get_field_values(idx),
+            )
         else:
             return tokens1, lengths1, tokens2, lengths2, label
 
@@ -159,6 +166,7 @@ class ContactDataModule(pl.LightningDataModule):
         balance_classes: bool = True,
         preserve_text_fields: bool = True,
         p_validation: float = 0.2,
+        return_eval_fields: bool = False,
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -169,6 +177,7 @@ class ContactDataModule(pl.LightningDataModule):
         self.tokenize, self.vocabulary = create_char_tokenizer()
         self.preserve_text_fields = preserve_text_fields
         self.p_validation = p_validation
+        self.return_eval_fields = return_eval_fields
 
         self._val_dataloader = None
 
@@ -267,7 +276,6 @@ class ContactDataModule(pl.LightningDataModule):
         stage: str,
         train_file: str = "prepared_train_data.csv",
         val_file: str = "prepared_val_data.csv",
-        return_eval_fields: bool = False,
     ) -> None:
         if stage == "fit" or stage == "validate":
             if stage == "fit":
@@ -277,7 +285,7 @@ class ContactDataModule(pl.LightningDataModule):
 
             self.val_dataset = self._read_prepared_data(
                 os.path.join(self.data_dir, val_file),
-                return_field_values=return_eval_fields,
+                return_field_values=self.return_eval_fields,
             )
 
         else:

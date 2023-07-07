@@ -154,8 +154,8 @@ if __name__ == "__main__":
 
     tokenizer, vocabulary = create_char_tokenizer()
 
-    data_module = ContactDataModule(batch_size=EVAL_BATCH_SIZE)
-    data_module.setup(stage="validate", return_eval_fields=True, val_file=args.filename)
+    data_module = ContactDataModule(batch_size=EVAL_BATCH_SIZE, return_eval_fields=True)
+    data_module.setup(stage="validate", val_file=args.filename)
 
     # Create model instance
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
