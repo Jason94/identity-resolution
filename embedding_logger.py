@@ -40,7 +40,7 @@ class TensorBoardEmbeddingLogger(TensorBoardLogger):
         self.maximum_embeddings_to_save = maximum_embeddings_to_save
 
     def sample_features_metadata(self):
-        if self.maximum_embeddings_to_save is None or not self._features:
+        if self.maximum_embeddings_to_save is None or self._features is None:
             return self._features, self._metadata
 
         N = self._features.shape[0]
