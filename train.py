@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, Tuple, List
+from typing import Any, Callable, Dict, Optional, Tuple, List, Union
 import torch
 from torch import optim
 import lightning.pytorch as pl
@@ -61,8 +61,7 @@ def transpose_dict_of_lists(dict_of_lists):
 class PlContactEncoder(pl.LightningModule):
     def __init__(
         self,
-        hyperparameters: Namespace,
-        fields: List[Field],
+        hyperparameters: Union[Namespace, dict],
         encoder: Optional[ContactEncoder] = None,
         loss_function: Optional[
             Callable[[float], Callable[[torch.Tensor, torch.Tensor, int], torch.Tensor]]
@@ -78,9 +77,20 @@ class PlContactEncoder(pl.LightningModule):
     ):
         super().__init__()
 
-        self.fields = fields
+        if isinstance(hyperparameters, dict):
+            hyperparameters = Namespace(**hyperparameters)
 
-        # If we got passed an encoder, then we should 'absorb' its hyperparameters.
+        self.loss_func_factory = (
+            hyperparameters and vars(hyperparameters).get("loss_function")
+        ) or loss_function
+        self.similarity_func_factory = (
+            hyperparameters and vars(hyperparameters).get("similarity_function")
+        ) or similarity_function
+
+        # --- Evaluation Performance Data
+        self.validation_labels = []
+        self.validation_preds = []
+
         if encoder:
             self.encoder = encoder
             hyperparameters = Namespace(
@@ -93,13 +103,9 @@ class PlContactEncoder(pl.LightningModule):
             self.save_hyperparameters(hyperparameters)
 
         # Create loss function from the margin hyperparameter
-        self.loss_function = loss_function(hyperparameters.margin)  # type: ignore
+        self.loss_function = self.loss_func_factory(hyperparameters.margin)  # type: ignore
         # Create similarity function from the duplicate thershold hyperparameter
-        self.similarity_function = similarity_function(hyperparameters.threshold)  # type: ignore
-
-        # --- Evaluation Performance Data
-        self.validation_labels = []
-        self.validation_preds = []
+        self.similarity_function = self.similarity_func_factory(hyperparameters.threshold)  # type: ignore
 
     def training_step(self, batch, batch_idx):
         if not self.loss_function:
@@ -142,7 +148,7 @@ class PlContactEncoder(pl.LightningModule):
 
         if isinstance(self.logger, TensorBoardEmbeddingLogger):
             field_data1, field_data2 = split_field_dict(
-                self.fields, transpose_dict_of_lists(field_data)
+                self.hparams.fields, transpose_dict_of_lists(field_data)  # type: ignore
             )
 
             field_data1 = [list(d.values()) for d in field_data1]
@@ -192,7 +198,6 @@ def train(
         hyperparameters=args,
         loss_function=ContrastiveLoss,
         similarity_function=is_duplicate,
-        fields=data_module.fields,
     )
     lightning_model.to(device)
 

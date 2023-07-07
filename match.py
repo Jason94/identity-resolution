@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import List, Tuple
 import torch
 
 from model import ContactEncoder
@@ -10,10 +11,17 @@ from data import (
     CompositeNameField,
     EmailField,
     ContactDataModule,
+    lookup_field,
+    Field,
+    ALL_FIELDS,
 )
 
 if __name__ == "__main__":
     tokenizer, vocabulary = create_char_tokenizer()
+
+    if len(sys.argv) <= 1:
+        print([f.subfield_labels for f in ALL_FIELDS])
+        sys.exit()
 
     # Create model instance
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -24,81 +32,75 @@ if __name__ == "__main__":
         sys.exit()
 
     pl_model = PlContactEncoder.load_from_checkpoint(
-        model_fname, encoder=ContactEncoder(len(vocabulary))
+        model_fname, loss_function=ContrastiveLoss, similarity_function=is_duplicate
     )
 
     model = pl_model.encoder
     model.to(device)
     model.eval()
 
-    first1 = sys.argv[1].lower()
-    last1 = sys.argv[2].lower()
-    email1 = sys.argv[3].lower()
-    first2 = sys.argv[4].lower()
-    last2 = sys.argv[5].lower()
-    email2 = sys.argv[6].lower()
+    fields = [lookup_field(f) for f in pl_model.hparams_initial.fields]  # type: ignore
 
-    print(f"Matching '{first1} {last1} - {email1}' & '{first2} {last2} - {email2}'")
+    i = 1
+    data1 = {}
+    data2 = {}
 
-    record = {
-        f"{CompositeNameField.subfield_labels[0]}1": first1,
-        f"{CompositeNameField.subfield_labels[1]}1": last1,
-        f"{EmailField.subfield_labels[0]}1": email1,
-        f"{CompositeNameField.subfield_labels[0]}2": first2,
-        f"{CompositeNameField.subfield_labels[1]}2": last2,
-        f"{EmailField.subfield_labels[0]}2": email2,
-    }
+    for f in fields:
+        for sl in f.subfield_labels:
+            data1[sl] = sys.argv[i].lower()
+            i += 1
+    for f in fields:
+        for sl in f.subfield_labels:
+            data2[sl] = sys.argv[i].lower()
+            i += 1
+
+    print(f"Matching '{data1}' & '{data2}'")
+
+    record = {}
+
+    tokens1 = []
+    tokens2 = []
+    for f in fields:
+        for sl in f.subfield_labels:
+            record[sl + "1"] = data1[sl]
+    for f in fields:
+        for sl in f.subfield_labels:
+            record[sl + "2"] = data2[sl]
 
     tokenized_name = ContactDataModule.field_tokenizer(CompositeNameField, tokenizer)(
         record
     )
     tokenized_email = ContactDataModule.field_tokenizer(EmailField, tokenizer)(record)
 
-    def convert_series_to_tensors(tokenized_name, tokenized_email):
-        name_token_tensors = []
-        email_token_tensors = []
-        name_length_tensors = []
-        email_length_tensors = []
+    def convert_series_to_tensors(
+        token_series, f: Field
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        token_tensors = []
+        length_tensors = []
 
-        for i in range(1, 3):  # iterate over the two groups of tokens and lengths
-            # convert the name and email tokens and lengths to tensors
-            name_token_tensors.append(torch.tensor(tokenized_name[f"name_tokens{i}"]))
-            name_length_tensors.append(
-                torch.tensor([tokenized_name[f"name_length{i}"]])
-            )
+        for i in range(1, 3):
+            token_tensors.append(torch.tensor(token_series[f"{f.field}_tokens{i}"]))
+            length_tensors.append(torch.tensor([token_series[f"{f.field}_length{i}"]]))
 
-            email_token_tensors.append(
-                torch.tensor(tokenized_email[f"email_tokens{i}"])
-            )
-            email_length_tensors.append(
-                torch.tensor([tokenized_email[f"email_length{i}"]])
-            )
+        return torch.stack(token_tensors), torch.cat(length_tensors)
 
-        field_tensors = [
-            torch.stack(name_token_tensors),
-            torch.stack(email_token_tensors),
-        ]
+    token_tensors = []
+    length_tensors = []
 
-        length_tensors = [
-            torch.cat(name_length_tensors),
-            torch.cat(email_length_tensors),
-        ]
+    for f in fields:
+        tokens, lengths = convert_series_to_tensors(
+            ContactDataModule.field_tokenizer(f, tokenizer)(record), f
+        )
+        token_tensors.append(tokens)
+        length_tensors.append(lengths)
 
-        return field_tensors, length_tensors
-
-    field_tensors, length_tensors = convert_series_to_tensors(
-        tokenized_name, tokenized_email
-    )
-
-    field_tensors = [t.to(device) for t in field_tensors]
+    token_tensors = [t.to(device) for t in token_tensors]
     length_tensors = [t.to(device) for t in length_tensors]
 
-    embeddings = model.forward(field_tensors, length_tensors)
+    embeddings = model.forward(token_tensors, length_tensors)
 
     print(embeddings)
 
-    matches, dist = is_duplicate(threshold=SIMILARITY_THRESHOLD, return_distance=True)(
-        embeddings[0], embeddings[1]
-    )
+    matches, dist = pl_model.similarity_function(embeddings[0], embeddings[1])
 
     print(f"Distance: {dist:.4f}, Matches: {matches}")
