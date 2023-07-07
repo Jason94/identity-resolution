@@ -80,9 +80,6 @@ class TensorBoardEmbeddingLogger(TensorBoardLogger):
                 metadata_header=self.metadata_headers,
             )
 
-            from torch.utils.tensorboard._embedding import make_tsv
-            from torch.utils.tensorboard.writer import SummaryWriter
-
             self._features = None
             self._metadata = None
             self._label_img = None

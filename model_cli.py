@@ -1,10 +1,10 @@
-from argparse import ArgumentParser
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 from data import ALL_FIELDS
 
 
 def make_parser() -> ArgumentParser:
-    parser = ArgumentParser()
+    parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         "--margin",
         type=float,
