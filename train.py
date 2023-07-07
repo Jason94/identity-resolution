@@ -238,6 +238,8 @@ if __name__ == "__main__":
 
     # margin_experiment(args)
     logger = TensorBoardEmbeddingLogger(
-        save_dir="", metadata_header=[f.field for f in data_module.fields]
+        save_dir="",
+        metadata_header=[f.field for f in data_module.fields],
+        maximum_embeddings_to_save=10000,
     )
     train(args, data_module, logger=logger)

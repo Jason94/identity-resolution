@@ -17,6 +17,7 @@ class TensorBoardEmbeddingLogger(TensorBoardLogger):
         prefix: str = "",
         sub_dir: Optional[_PATH] = None,
         metadata_header: Optional[List[str]] = None,
+        maximum_embeddings_to_save: Optional[int] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -36,6 +37,22 @@ class TensorBoardEmbeddingLogger(TensorBoardLogger):
         self._label_img = None
 
         self.metadata_headers = metadata_header
+        self.maximum_embeddings_to_save = maximum_embeddings_to_save
+
+    def sample_features_metadata(self):
+        if self.maximum_embeddings_to_save is None or not self._features:
+            return self._features, self._metadata
+
+        N = self._features.shape[0]
+        num_samples = min(N, self.maximum_embeddings_to_save)
+        indices = np.random.choice(N, size=num_samples, replace=False)
+
+        sampled_features = self._features[indices]
+        sampled_metadata = (
+            None if self._metadata is None else [self._metadata[i] for i in indices]
+        )
+
+        return sampled_features, sampled_metadata
 
     @rank_zero_only
     def log_embeddings(
@@ -70,18 +87,17 @@ class TensorBoardEmbeddingLogger(TensorBoardLogger):
         # your code to record metrics goes here
         # self.experiment.
         super().save()
-        if self._features is not None:
+        features, metadata = self.sample_features_metadata()
+
+        if features is not None:
             self.experiment.add_embedding(
-                self._features,
-                metadata=self._metadata,
+                features,
+                metadata=metadata,
                 label_img=self._label_img,
                 global_step=self.epoch,
                 tag=f"{self.name}_{self.version}",
                 metadata_header=self.metadata_headers,
             )
-
-            from torch.utils.tensorboard._embedding import make_tsv
-            from torch.utils.tensorboard.writer import SummaryWriter
 
             self._features = None
             self._metadata = None
