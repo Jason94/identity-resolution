@@ -43,9 +43,11 @@ CompositeNameField = Field(
 
 EmailField = Field(field="email", subfield_labels=["email"], max_length=35)
 
+PhoneField = Field(field="phone", subfield_labels=["phone"], max_length=10)
+
 StateField = Field(field="state", subfield_labels=["state"], max_length=2)
 
-ALL_FIELDS = [CompositeNameField, EmailField, StateField]
+ALL_FIELDS = [CompositeNameField, EmailField, PhoneField, StateField]
 
 
 def lookup_field(name: str) -> Field:
