@@ -7,15 +7,18 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from sklearn.metrics import precision_score, recall_score, f1_score
 from argparse import Namespace
 from pytorch_lightning.loggers import TensorBoardLogger
-
+import logging
 
 from contrastive_metric import ContrastiveLoss, is_duplicate
 from model import ContactEncoder
 from config import *
 from data import ContactDataModule, Field, lookup_field
-from model_cli import make_parser
+from model_cli import *
 from embedding_logger import TensorBoardEmbeddingLogger
 from utilities import transpose_dict_of_lists, split_field_dict
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def convert_bool_tensor(tensor):
@@ -28,8 +31,26 @@ def convert_bool_tensor(tensor):
 class PlContactEncoder(pl.LightningModule):
     def __init__(
         self,
-        hyperparameters: Union[Namespace, dict],
-        encoder: Optional[ContactEncoder] = None,
+        field_names: List[str],
+        vocab_size: int,
+        checkpoint_path: Optional[str] = None,
+        prepared_data: Optional[str] = None,
+        source_files: Optional[List[str]] = None,
+        training_data: Optional[str] = None,
+        eval_data: Optional[str] = None,
+        threshold: Optional[float] = None,
+        batch_size: Optional[int] = None,
+        margin: Optional[float] = None,
+        learning_rate: Optional[float] = None,
+        num_epochs: Optional[int] = None,
+        p_dropout: Optional[float] = None,
+        version_name: Optional[str] = None,
+        embedding_dim: Optional[int] = None,
+        n_heads_attn: Optional[int] = None,
+        attn_dim: Optional[int] = 180,
+        norm_eps: Optional[float] = None,
+        output_mlp_layers: Optional[int] = None,
+        output_embedding_dim: Optional[int] = None,
         loss_function: Optional[
             Callable[[float], Callable[[torch.Tensor, torch.Tensor, int], torch.Tensor]]
         ] = None,
@@ -41,38 +62,38 @@ class PlContactEncoder(pl.LightningModule):
                 ],
             ]
         ] = None,
+        encoder: Optional[ContactEncoder] = None,
     ):
         super().__init__()
-
-        if isinstance(hyperparameters, dict):
-            hyperparameters = Namespace(**hyperparameters)
-
-        self.loss_func_factory = (
-            hyperparameters and vars(hyperparameters).get("loss_function")
-        ) or loss_function
-        self.similarity_func_factory = (
-            hyperparameters and vars(hyperparameters).get("similarity_function")
-        ) or similarity_function
 
         # --- Evaluation Performance Data
         self.validation_labels = []
         self.validation_preds = []
 
+        self.save_hyperparameters(ignore=["encoder"])
+
         if encoder:
             self.encoder = encoder
-            hyperparameters = Namespace(
-                **{**vars(hyperparameters), **encoder.hyperparameters()}
-            )
-            self.save_hyperparameters(hyperparameters)
-        # If we only got hyperparameters, create a new ContactEncoder.
         else:
-            self.encoder = ContactEncoder.from_namespace(hyperparameters)
-            self.save_hyperparameters(hyperparameters)
+            self.encoder = ContactEncoder.from_namespace(Namespace(**self.hparams))
 
-        # Create loss function from the margin hyperparameter
-        self.loss_function = self.loss_func_factory(hyperparameters.margin)  # type: ignore
-        # Create similarity function from the duplicate thershold hyperparameter
-        self.similarity_function = self.similarity_func_factory(hyperparameters.threshold)  # type: ignore
+    def loss_function(
+        self, margin: Optional[float] = None
+    ) -> Callable[[torch.Tensor, torch.Tensor, int], torch.Tensor]:
+        _margin: float = margin or self.hparams.margin  # type: ignore
+        fact = self.hparams.get("loss_function")
+        if fact is None:
+            raise ValueError("Must specify loss function.")
+        return fact(_margin)
+
+    def similarity_function(
+        self, threshold: Optional[float] = None
+    ) -> Callable[[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]:
+        _thresh: float = threshold or self.hparams.threshold  # type: ignore
+        fact = self.hparams.get("similarity_function")
+        if fact is None:
+            raise ValueError("Must specificy similarity function.")
+        return fact(_thresh)
 
     def fields(self) -> List[Field]:
         field_names: List[str] = self.hparams.field_names  # type: ignore
@@ -89,7 +110,7 @@ class PlContactEncoder(pl.LightningModule):
         output2 = self.encoder(tokens2, lengths2)
 
         # Calculate loss
-        loss = self.loss_function(output1, output2, labels)
+        loss = self.loss_function()(output1, output2, labels)
 
         self.log(
             "train_loss",
@@ -112,9 +133,9 @@ class PlContactEncoder(pl.LightningModule):
         output2 = self.encoder(tokens2, lengths2)
 
         # Compute the loss
-        loss = self.loss_function(output1, output2, labels)
+        loss = self.loss_function()(output1, output2, labels)
 
-        pred_raw, dists = self.similarity_function(output1, output2)
+        pred_raw, dists = self.similarity_function()(output1, output2)
         pred = convert_bool_tensor(pred_raw)
 
         if isinstance(self.logger, TensorBoardEmbeddingLogger):
@@ -125,8 +146,8 @@ class PlContactEncoder(pl.LightningModule):
             field_data1 = [list(d.values()) for d in field_data1]
             field_data2 = [list(d.values()) for d in field_data2]
 
-            self.logger.log_embeddings(output1, metadata=field_data1)
-            self.logger.log_embeddings(output2, metadata=field_data2)
+            self.logger.log_embeddings(output1, self.global_step, metadata=field_data1)
+            self.logger.log_embeddings(output2, self.global_step, metadata=field_data2)
 
         # Log
         self.log(
@@ -159,17 +180,43 @@ class PlContactEncoder(pl.LightningModule):
 
 
 def train(
-    args: Namespace, data_module: ContactDataModule, logger: Optional[Any] = None
+    args: Namespace,
+    data_module: ContactDataModule,
 ):
-    # Create model instance
+    checkpoint_path: Optional[str] = args.checkpoint_path
+
+    if checkpoint_path is not None:
+        logger.info(f"Loading model from {checkpoint_path}")
+        lightning_model = PlContactEncoder.load_from_checkpoint(
+            checkpoint_path,
+            loss_function=ContrastiveLoss,
+            similarity_function=is_duplicate,
+        )
+        lightning_model.save_hyperparameters(
+            {
+                "batch_size": args.batch_size,
+                "training_data": args.training_data,
+                "eval_data": args.eval_data,
+                "threshold": args.threshold,
+                "version_name": (
+                    args.version_name or lightning_model.hparams.version_name  # type: ignore
+                ),
+            }
+        )
+    else:
+        lightning_model = PlContactEncoder(
+            **{
+                **vars(args),
+                "vocab_size": len(data_module.vocabulary),
+                "loss_function": ContrastiveLoss,
+                "similarity_function": is_duplicate,
+            }
+        )
+        lightning_model._save_to_state_dict
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Found device {device}")
 
-    lightning_model = PlContactEncoder(
-        hyperparameters=args,
-        loss_function=ContrastiveLoss,
-        similarity_function=is_duplicate,
-    )
     lightning_model.to(device)
 
     checkpoint_callback = ModelCheckpoint(
@@ -181,12 +228,20 @@ def train(
         save_last=True,
     )
 
+    lightning_logger = TensorBoardEmbeddingLogger(
+        save_dir="",
+        metadata_header=[f.field for f in data_module.fields],
+        maximum_embeddings_to_save=10000,
+        version=lightning_model.hparams.version_name,  # type: ignore
+    )
     trainer = pl.Trainer(
         max_epochs=args.num_epochs,
         callbacks=[ModelSummary(max_depth=-1), checkpoint_callback],
-        logger=logger,
+        logger=lightning_logger,
     )
-    trainer.fit(model=lightning_model, datamodule=data_module)
+    trainer.fit(
+        model=lightning_model, datamodule=data_module, ckpt_path=checkpoint_path
+    )
 
 
 def margin_experiment(args: Namespace):
@@ -197,16 +252,23 @@ def margin_experiment(args: Namespace):
 
         for i in range(0, 3):
             print(f"Experiment {i}: margin={margin}")
-            logger = TensorBoardLogger(
+            lightning_logger = TensorBoardLogger(
                 save_dir="", version=f"margin_{margin:0.2f}__{i}"
             )
-            logger.experiment.add_embedding()
+            lightning_logger.experiment.add_embedding()
             # Load the data
-            train(scenario_args, data_module, logger=logger)
+            train(scenario_args, data_module)
 
 
 if __name__ == "__main__":
-    parser = make_parser()
+    logging.basicConfig()
+
+    parser = make_universal_args()
+    make_model_io_args(parser)
+    make_data_args(parser)
+    make_model_args(parser)
+    make_training_args(parser)
+
     args = parser.parse_args()
 
     data_module = ContactDataModule(
@@ -219,10 +281,5 @@ if __name__ == "__main__":
     args.vocab_size = len(data_module.vocabulary)
 
     # margin_experiment(args)
-    logger = TensorBoardEmbeddingLogger(
-        save_dir="",
-        metadata_header=[f.field for f in data_module.fields],
-        maximum_embeddings_to_save=10000,
-        version=args.version_name,
-    )
-    train(args, data_module, logger=logger)
+
+    train(args, data_module)

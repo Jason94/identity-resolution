@@ -29,12 +29,11 @@ class TensorBoardEmbeddingLogger(TensorBoardLogger):
             prefix=prefix,
             sub_dir=sub_dir,
         )
-        # This is a terrible hack
-        self.epoch = 0
-
         self._features = None
         self._metadata = None
         self._label_img = None
+
+        self.global_step = 0
 
         self.metadata_headers = metadata_header
         self.maximum_embeddings_to_save = maximum_embeddings_to_save
@@ -58,34 +57,35 @@ class TensorBoardEmbeddingLogger(TensorBoardLogger):
     def log_embeddings(
         self,
         features: torch.Tensor,
+        global_step: int,
         metadata: Optional[List[List[str]]] = None,
         label_img: Optional[torch.Tensor] = None,
     ):
         assert rank_zero_only.rank == 0, "experiment tried to log from global_rank != 0"
 
-        if self._features is None:
-            self._features = features
-        else:
-            self._features = torch.cat([self._features, features], dim=0)
+        if global_step > 0:
+            self.global_step = max(global_step, self.global_step)
 
-        if metadata is not None:
-            metadata_flat = metadata
-            if self._metadata is None:
-                self._metadata = metadata_flat
+            if self._features is None:
+                self._features = features
             else:
-                self._metadata.extend(metadata_flat)
+                self._features = torch.cat([self._features, features], dim=0)
 
-        if label_img:
-            if self._label_img is None:
-                self._label_img = label_img
-            else:
-                self._label_img = torch.cat([self._label_img, label_img], dim=0)
+            if metadata is not None:
+                metadata_flat = metadata
+                if self._metadata is None:
+                    self._metadata = metadata_flat
+                else:
+                    self._metadata.extend(metadata_flat)
+
+            if label_img:
+                if self._label_img is None:
+                    self._label_img = label_img
+                else:
+                    self._label_img = torch.cat([self._label_img, label_img], dim=0)
 
     @rank_zero_only
     def save(self):
-        # metrics is a dictionary of metric names and values
-        # your code to record metrics goes here
-        # self.experiment.
         super().save()
         features, metadata = self.sample_features_metadata()
 
@@ -94,7 +94,7 @@ class TensorBoardEmbeddingLogger(TensorBoardLogger):
                 features,
                 metadata=metadata,
                 label_img=self._label_img,
-                global_step=self.epoch,
+                global_step=self.global_step,
                 tag=f"{self.name}_{self.version}",
                 metadata_header=self.metadata_headers,
             )
@@ -102,5 +102,3 @@ class TensorBoardEmbeddingLogger(TensorBoardLogger):
             self._features = None
             self._metadata = None
             self._label_img = None
-
-            self.epoch += 1

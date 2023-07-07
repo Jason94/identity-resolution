@@ -111,28 +111,25 @@ class ContactDataset(Dataset):
 
 
 class ContactDataModule(pl.LightningDataModule):
-    @staticmethod
-    def is_valid(string: str) -> bool:
+    def is_valid(self, string: str) -> bool:
         # Remove non-ascii entries
         for c in string:
-            if not (0 <= ord(c) <= 127):
+            if c not in self.vocabulary or c == PAD_CHARACTER:
                 return False
 
         return True
 
-    @staticmethod
-    def valid_row(row: dict) -> bool:
+    def valid_row(self, row: dict) -> bool:
         for s in row.values():
-            if not ContactDataModule.is_valid(s):
+            if not self.is_valid(s):
                 return False
 
         return True
 
-    @staticmethod
-    def _read_data(filename):
+    def _read_data(self, filename):
         with open(filename, "r", encoding="utf8") as file:
             reader = csv.DictReader(file)
-            data = [row for row in reader if ContactDataModule.valid_row(row)]
+            data = [row for row in reader if self.valid_row(row)]
         return data
 
     @staticmethod
@@ -270,8 +267,11 @@ class ContactDataModule(pl.LightningDataModule):
         df_train = df.drop(df_val.index)
 
         df.to_csv(writepath)
+        logger.info(f"Wrote prepared data to {self.prepared_file}")
         df_train.to_csv(os.path.join(self.data_dir, self.train_file))
+        logger.info(f"Wrote prepared training data to {self.train_file}")
         df_val.to_csv(os.path.join(self.data_dir, self.val_file))
+        logger.info(f"Wrote prepared validation data to {self.val_file}")
 
     def _read_prepared_data(self, filepath: str, **dataset_args) -> ContactDataset:
         df = pd.read_csv(filepath, keep_default_na=False)

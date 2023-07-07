@@ -75,10 +75,10 @@ def eval_model(
             output2 = model(tokens2, lengths2)
 
             # Compute the loss
-            loss = criterion(output1, output2, labels)
+            loss = criterion()(output1, output2, labels)
             total_loss += loss.item()
 
-            pred, dists = similarity(output1, output2)
+            pred, dists = similarity()(output1, output2)
             pred = convert_bool_tensor(pred)
 
             # Compute the predictions

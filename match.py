@@ -30,9 +30,7 @@ if __name__ == "__main__":
         print("Could not find model.")
         sys.exit()
 
-    pl_model = PlContactEncoder.load_from_checkpoint(
-        model_fname, loss_function=ContrastiveLoss, similarity_function=is_duplicate
-    )
+    pl_model = PlContactEncoder.load_from_checkpoint(model_fname)
 
     model = pl_model.encoder
     model.to(device)
@@ -100,6 +98,6 @@ if __name__ == "__main__":
 
     print(embeddings)
 
-    matches, dist = pl_model.similarity_function(embeddings[0], embeddings[1])
+    matches, dist = pl_model.similarity_function()(embeddings[0], embeddings[1])
 
     print(f"Distance: {dist:.4f}, Matches: {matches}")

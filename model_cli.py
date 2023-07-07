@@ -20,6 +20,17 @@ def make_universal_args(parser: Optional[ArgumentParser] = None) -> ArgumentPars
     return parser
 
 
+def make_model_io_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
+    if parser is None:
+        parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+    parser.add_argument(
+        "--checkpoint_path",
+        type=str,
+        help=("Path to an existing checkpoint to load."),
+    )
+    return parser
+
+
 def make_data_args(
     parser: Optional[ArgumentParser] = None, needs_source_file: bool = False
 ) -> ArgumentParser:
@@ -180,16 +191,4 @@ def make_model_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
             " effectively the final size of the representations of each token."
         ),
     )
-    return parser
-
-
-def make_parser() -> ArgumentParser:
-    parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
-    make_universal_args(parser)
-    make_data_args(parser)
-    make_model_args(parser)
-    make_training_args(parser)
-
-    # -- Evaluation Arguments
-
     return parser

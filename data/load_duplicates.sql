@@ -123,10 +123,11 @@ WITH ea_emails AS (
         email_field,
         state_field,
         RIGHT(REGEXP_REPLACE(raw_phone_field, '[^0-9]', ''), 10) AS phone_field,
-       -- We won't take contacts that only differ by state.
-       first_name_field || '|' || last_name_field || '|' || email_field || '|' || phone_field as comp_string_no_state,
-       first_name_field || '|' || last_name_field || '|' || email_field || '|' || state_field as comp_string_no_phone,
-       first_name_field || '|' || last_name_field as comp_string_names
+        -- We won't take contacts that only differ by state.
+        first_name_field || '|' || last_name_field || '|' || email_field || '|' || phone_field || '|' || state_field as comp_string,
+        first_name_field || '|' || last_name_field || '|' || email_field || '|' || phone_field as comp_string_no_state,
+        first_name_field || '|' || last_name_field || '|' || email_field || '|' || state_field as comp_string_no_phone,
+        first_name_field || '|' || last_name_field as comp_string_names
     FROM (
             SELECT *
             FROM ea_xwalks
@@ -166,4 +167,5 @@ WHERE
     --     (c1.phone_field <> '' AND c2.phone_field <> '') OR
     --     c1.comp_string_no_phone <> c2.comp_string_no_phone
     -- )
-    c1.comp_string_names <> c2.comp_string_names;
+    -- c1.comp_string_names <> c2.comp_string_names;
+    c1.comp_string <> c2.comp_string
