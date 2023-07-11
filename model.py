@@ -47,7 +47,8 @@ class ContactEncoder(nn.Module):
 
         # Create a tensor that includes the divisors for the sinusoidal functions
         # It includes values for even indices from 0 to embedding_dimension
-        # Dividing by the log of 10000 creates a range of frequencies to capture positional information at different scales
+        # Dividing by the log of 10000 creates a range of frequencies to capture positional
+        # information at different scales
         divisors = torch.exp(
             -(math.log(10000.0))
             * torch.arange(0, embedding_dimension, 2).float()
@@ -69,6 +70,61 @@ class ContactEncoder(nn.Module):
         positional_encoding = nn.Parameter(positional_encoding, requires_grad=False)
 
         return positional_encoding
+
+    @staticmethod
+    def init_field_positional_encoding(field_lengths, embedding_dimension):
+        """
+        Function to initialize positional encoding tensor for fields.
+
+        In this positional encoding function, we're essentially encoding each position of the field
+        (from 0 to the max number of fields) as a unique vector. We do this using the init_positional_encoding
+        function. The positional encoding for each character in the same field is the same.
+
+        Args:
+            field_lengths: A list of the maximum lengths for each field.
+            embedding_dimension: The dimension of the embeddings.
+
+        Returns:
+            field_positional_encoding: Positional encoding tensor of shape
+                (1, total_sequence_length, embedding_dimension).
+        """
+
+        # Calculate the total sequence length by summing all field lengths
+        total_sequence_length = sum(field_lengths)
+
+        # Initialize the positional encoding for the total sequence length
+        positional_encoding = ContactEncoder.init_positional_encoding(
+            total_sequence_length, embedding_dimension
+        )
+
+        # Initialize an empty tensor for the field positional encoding
+        field_positional_encoding = torch.zeros_like(positional_encoding)
+
+        # Initialize the starting index for filling in the field positional encoding
+        start_index = 0
+
+        # Loop through each field length
+        for field_length in field_lengths:
+            # Get the positional encoding for this field
+            field_enc = positional_encoding[:, start_index]
+
+            # Repeat this positional encoding for the length of this field
+            field_enc = field_enc.repeat(field_length, 1)
+
+            # Fill in the positional encoding for this field in the field positional encoding tensor
+            field_positional_encoding[
+                :, start_index : start_index + field_length
+            ] = field_enc
+
+            # Update the starting index for the next field
+            start_index += field_length
+
+        # Wrap field_positional_encoding in a PyTorch Parameter object
+        field_positional_encoding = nn.Parameter(
+            field_positional_encoding, requires_grad=False
+        )
+
+        return field_positional_encoding
 
     @staticmethod
     def from_namespace(namespace: Namespace):
@@ -108,27 +164,54 @@ class ContactEncoder(nn.Module):
             nn.LayerNorm(embedding_dim, eps=norm_eps),
         )
 
-        # --- Attention Layer
         self.attn_dim = attn_dim
         self.fc_expand_embedding = nn.Linear(embedding_dim, attn_dim)
 
+        # --- Field-Attending Attention Layer
+        self.n_heads_attn = n_heads_attn
+
+        self.f_que_layer = nn.Linear(attn_dim, attn_dim)
+        self.f_key_layer = nn.Linear(attn_dim, attn_dim)
+        self.f_val_layer = nn.Linear(attn_dim, attn_dim)
+
+        field_lengths = sum([f.max_length for f in fields])
+
+        self.f_positional_encoding = self.init_field_positional_encoding(
+            [f.max_length for f in self.fields], attn_dim
+        )
+
+        self.f_multihead_attn = nn.MultiheadAttention(
+            attn_dim, n_heads_attn, batch_first=True, dropout=p_dropout
+        )
+
+        self.f_norm_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
+
+        # --- Field-Attending Attention Processing
+        self.field_proc_attn = nn.Sequential(
+            nn.Linear(attn_dim, attn_dim),
+            nn.ReLU(),
+            nn.Dropout(p_dropout),
+            nn.Linear(attn_dim, attn_dim),
+        )
+
+        self.f_norm_proc_attention = nn.LayerNorm(attn_dim, eps=norm_eps)
+
+        # --- Character-Attending Attention Layer
         self.que_layer = nn.Linear(attn_dim, attn_dim)
         self.key_layer = nn.Linear(attn_dim, attn_dim)
         self.val_layer = nn.Linear(attn_dim, attn_dim)
 
-        field_lengths = sum([f.max_length for f in fields])
         self.positional_encoding = self.init_positional_encoding(
             field_lengths, attn_dim
         )
 
-        self.n_heads_attn = n_heads_attn
         self.multihead_attn = nn.MultiheadAttention(
             attn_dim, n_heads_attn, batch_first=True, dropout=p_dropout
         )
 
         self.norm_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
 
-        # -- Attention Processing
+        # --- Attention Processing
         self.fc_proc_attn = nn.Sequential(
             nn.Linear(attn_dim, attn_dim),
             nn.ReLU(),
@@ -138,7 +221,7 @@ class ContactEncoder(nn.Module):
 
         self.norm_proc_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
 
-        # -- Final Output Processing
+        # --- Final Output Processing
         self.output_embedding_dim = output_embedding_dim
         self.fc_output = nn.Sequential(
             MLP(
@@ -178,14 +261,18 @@ class ContactEncoder(nn.Module):
         length_tensors: List[torch.Tensor],
         *xargs
     ):
+        # --- Initial Embeddings
+
         # Generate the initial embeddings
         embeddings = [self.embedding(field_tensor) for field_tensor in token_tensors]
         expanded_embeddings = [
             self.fc_expand_embedding(embedding) for embedding in embeddings
         ]
 
-        # Concat field embeddings along the sequence dimension, to prepare for the attention
+        # Concat field embeddings along the sequence dimension
         combined_field_embeddings = torch.cat(expanded_embeddings, dim=1)
+
+        # --- Field-Attending Attention
 
         # Create the attention mask
         attn_masks = []
@@ -195,20 +282,45 @@ class ContactEncoder(nn.Module):
             )
         attn_mask = torch.cat(attn_masks, dim=1)
 
-        # Add the positional information
         batch_size, _, _ = combined_field_embeddings.shape
         pad_mask = attn_mask.unsqueeze(-1).expand(-1, -1, self.attn_dim)
+
+        # Add the field-level positional encoding
+        field_positional_encodings_masked = self.f_positional_encoding.repeat(
+            batch_size, 1, 1
+        )
+        field_positional_encodings_masked[pad_mask] = 0
+
+        f_attn_input = combined_field_embeddings + field_positional_encodings_masked
+
+        # Pass through the multihead attention
+        f_queries = self.f_que_layer(f_attn_input)
+        f_keys = self.key_layer(f_attn_input)
+        f_values = self.val_layer(f_attn_input)
+
+        f_attn_output, f_attn_output_weights = self.f_multihead_attn(
+            f_queries, f_keys, f_values, key_padding_mask=attn_mask
+        )
+
+        f_norm_attn_output = self.f_norm_attn(f_attn_output + f_attn_input)
+
+        # Pass through feed-forward network
+        f_ff_output = self.field_proc_attn(f_norm_attn_output)
+
+        f_norm_output = self.f_norm_proc_attention(f_ff_output + f_norm_attn_output)
+
+        # --- Character-Attending Attention
+
+        # We can re-use the same mask as for the field-attending layer
         positional_encodings_masked = self.positional_encoding.repeat(batch_size, 1, 1)
         positional_encodings_masked[pad_mask] = 0
 
-        combined_field_embeddings = (
-            combined_field_embeddings + positional_encodings_masked
-        )
+        attn_input = f_norm_output + positional_encodings_masked
 
         # Pass through the multihead attention
-        queries = self.que_layer(combined_field_embeddings)
-        keys = self.key_layer(combined_field_embeddings)
-        values = self.val_layer(combined_field_embeddings)
+        queries = self.que_layer(attn_input)
+        keys = self.key_layer(attn_input)
+        values = self.val_layer(attn_input)
 
         attn_output, attn_output_weights = self.multihead_attn(
             queries,
@@ -217,12 +329,14 @@ class ContactEncoder(nn.Module):
             key_padding_mask=attn_mask,
         )
 
-        norm_attn_output = self.norm_attn(attn_output + combined_field_embeddings)
+        norm_attn_output = self.norm_attn(attn_output + attn_input)
 
         # Pass through the feed forward network
         ff_output = self.fc_proc_attn(norm_attn_output)
 
         norm_output = self.norm_proc_attn(ff_output + norm_attn_output)
+
+        # --- Output
 
         # Produce a weighted sum of the character-wise embeddings to represent the input
         final_attn_weights = attn_output_weights[:, -1, :]

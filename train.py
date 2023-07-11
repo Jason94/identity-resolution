@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Optional, Tuple, List, Union
+from typing import Any, Callable, Optional, Tuple, List
 import torch
 from torch import optim
 import lightning.pytorch as pl
