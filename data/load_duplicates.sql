@@ -123,11 +123,7 @@ WITH ea_emails AS (
         email_field,
         state_field,
         RIGHT(REGEXP_REPLACE(raw_phone_field, '[^0-9]', ''), 10) AS phone_field,
-        -- We won't take contacts that only differ by state.
         first_name_field || '|' || last_name_field || '|' || email_field || '|' || phone_field || '|' || state_field as comp_string,
-        first_name_field || '|' || last_name_field || '|' || email_field || '|' || phone_field as comp_string_no_state,
-        first_name_field || '|' || last_name_field || '|' || email_field || '|' || state_field as comp_string_no_phone,
-        first_name_field || '|' || last_name_field as comp_string_names
     FROM (
             SELECT *
             FROM ea_xwalks
@@ -161,11 +157,6 @@ JOIN
 ON 
     c1.xwalk_id = c2.xwalk_id
 WHERE 
-    -- c1.comp_string_no_state <> c2.comp_string_no_state
-    -- -- Don't take a pair of duplicates that only differ by phone if one of their phones is empty
-    -- AND (
-    --     (c1.phone_field <> '' AND c2.phone_field <> '') OR
-    --     c1.comp_string_no_phone <> c2.comp_string_no_phone
-    -- )
-    -- c1.comp_string_names <> c2.comp_string_names;
-    c1.comp_string <> c2.comp_string
+    c1.comp_string <> c2.comp_string AND
+    -- Prevent duplicate pairs (1,2) then (2,1) later from showing up
+    c1.comp_string < c2.comp_string;
