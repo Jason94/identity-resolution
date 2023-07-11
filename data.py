@@ -33,7 +33,6 @@ def update_label(df1: pd.DataFrame, df2: pd.DataFrame, fields: List[str]):
     pandas.DataFrame: The updated dataframe.
     """
     merged = pd.merge(df1, df2, on=fields, how="left", suffixes=("", "_y"))
-    breakpoint()
     df1["label"] = np.where(
         pd.notna(merged["label_y"]), merged["label_y"], df1["label"]
     )
@@ -292,11 +291,12 @@ class ContactDataModule(pl.LightningDataModule):
                         df = df.drop(columns=[sf + i for sf in field.subfield_labels])
         else:
             logger.info(f"Loading existing prepared data from {writepath}")
-            df = pd.read_csv(writepath)
+            df = pd.read_csv(writepath, keep_default_na=False)
 
         if self.corrections_file is not None:
             corrections = pd.read_csv(
-                os.path.join(self.data_dir, self.corrections_file)
+                os.path.join(self.data_dir, self.corrections_file),
+                keep_default_na=False,
             )
             df = update_label(
                 df,
@@ -308,11 +308,11 @@ class ContactDataModule(pl.LightningDataModule):
         df_val = df.sample(frac=self.p_validation)
         df_train = df.drop(df_val.index)
 
-        df.to_csv(writepath)
-
         if write_prepared_file:
+            df.to_csv(writepath)
             logger.info(f"Wrote prepared data to {self.prepared_file}")
-            df_train.to_csv(os.path.join(self.data_dir, self.train_file))
+
+        df_train.to_csv(os.path.join(self.data_dir, self.train_file))
         logger.info(f"Wrote prepared training data to {self.train_file}")
         df_val.to_csv(os.path.join(self.data_dir, self.val_file))
         logger.info(f"Wrote prepared validation data to {self.val_file}")
