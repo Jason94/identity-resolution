@@ -159,8 +159,11 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+.vscode/
+
 # We don't want to track PII in the training data into GitHub
 data/**/*.csv
+data/**/*.ods
 
 # We don't want to check the model data into GitHub
 models/*

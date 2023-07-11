@@ -1,10 +1,11 @@
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from lightning.pytorch.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 import torch
 from torch.utils.data import Dataset, DataLoader
 import lightning.pytorch as pl
 import pandas as pd
+import numpy as np
 import csv
 import os
 import logging
@@ -16,6 +17,27 @@ logger.setLevel(logging.INFO)
 
 
 PAD_CHARACTER = "\0"
+
+
+def update_label(df1: pd.DataFrame, df2: pd.DataFrame, fields: List[str]):
+    """
+    Updates the 'label' value in df1 with the 'label' value in df2
+    for rows where all columns in 'fields' list match in both dataframes.
+
+    Parameters:
+    df1 (pandas.DataFrame): The dataframe to be updated.
+    df2 (pandas.DataFrame): The dataframe that contains the new label values.
+    fields (list of str): The fields to be matched in both dataframes.
+
+    Returns:
+    pandas.DataFrame: The updated dataframe.
+    """
+    merged = pd.merge(df1, df2, on=fields, how="left", suffixes=("", "_y"))
+    breakpoint()
+    df1["label"] = np.where(
+        pd.notna(merged["label_y"]), merged["label_y"], df1["label"]
+    )
+    return df1
 
 
 def create_char_tokenizer() -> Tuple[Dict[str, int], List[str]]:
@@ -172,6 +194,7 @@ class ContactDataModule(pl.LightningDataModule):
         prepared_file: str = "prepared_data.csv",
         train_file: str = "prepared_train_data.csv",
         val_file: str = "prepared_val_data.csv",
+        corrections_file: Optional[str] = None,
         batch_size: int = 16,
         fields: List[Field] = ALL_FIELDS,
         balance_classes: bool = True,
@@ -185,6 +208,7 @@ class ContactDataModule(pl.LightningDataModule):
         self.prepared_file = prepared_file
         self.train_file = train_file
         self.val_file = val_file
+        self.corrections_file = corrections_file
         self.batch_size = batch_size
         self.fields = fields
         self.balance_classes = balance_classes
@@ -200,75 +224,95 @@ class ContactDataModule(pl.LightningDataModule):
         overwrite: bool = False,
     ) -> None:
         writepath = os.path.join(self.data_dir, self.prepared_file)
-        if os.path.exists(writepath) and not overwrite:
-            logger.info(f"Prepared data already found at {writepath}.")
-            return
+        write_prepared_file = not os.path.exists(writepath) or overwrite
+        if write_prepared_file:
+            logger.info("Assembling prepared data.")
 
-        logger.info(f"Preparing {len(self.data_lists)} lists")
-        data = []
-        for list in self.data_lists:
-            filename = os.path.join(self.data_dir, list)
-            file_data = self._read_data(filename)
-            logger.info(f"Found {len(file_data)} valid rows in {list}.csv")
-            data.extend(file_data)
+            logger.info(f"Preparing {len(self.data_lists)} lists")
+            data = []
+            for list in self.data_lists:
+                filename = os.path.join(self.data_dir, list)
+                file_data = self._read_data(filename)
+                logger.info(f"Found {len(file_data)} valid rows in {list}.csv")
+                data.extend(file_data)
 
-        df = pd.DataFrame(data, dtype="string").astype({"label": int})
+            df = pd.DataFrame(data, dtype="string").astype({"label": int})
 
-        if self.balance_classes:
-            # count the number of instances for each class
-            class_counts = df["label"].value_counts()
+            if self.balance_classes:
+                # count the number of instances for each class
+                class_counts = df["label"].value_counts()
 
-            # get the class with the least number of instances
-            min_class = class_counts.idxmin()
-            min_count = class_counts.min()
+                # get the class with the least number of instances
+                min_class = class_counts.idxmin()
+                min_count = class_counts.min()
 
-            logger.info(
-                f"Found least represented class {min_class} with {min_count} rows. Balancing."
-            )
+                logger.info(
+                    f"Found least represented class {min_class} with {min_count} rows. Balancing."
+                )
 
-            # under-sample the other class
-            df_balanced = pd.concat(
-                [
-                    df[df["label"] == label].sample(min_count, random_state=0)
-                    for label in class_counts.index
-                ]
-            )
+                # under-sample the other class
+                df_balanced = pd.concat(
+                    [
+                        df[df["label"] == label].sample(min_count, random_state=0)
+                        for label in class_counts.index
+                    ]
+                )
 
-            df = df_balanced
+                df = df_balanced
 
-        logger.info(f"Saving {len(df)} rows.")
+            logger.info(f"Saving {len(df)} rows.")
 
-        for field in self.fields:
-            logger.info(f"Tokenizing {field.field} field")
-            df = df.join(df.apply(self.field_tokenizer(field, self.tokenize), axis=1))
+            for field in self.fields:
+                logger.info(f"Tokenizing {field.field} field")
+                df = df.join(
+                    df.apply(self.field_tokenizer(field, self.tokenize), axis=1)
+                )
 
-            # Convert to a '|' delimited list for saving
-            for i in ["1", "2"]:
-                col = f"{field.field}_tokens{i}"
-                df[col] = df[col].map(lambda tokens: "|".join([str(t) for t in tokens]))
-
-            if self.preserve_text_fields:
+                # Convert to a '|' delimited list for saving
                 for i in ["1", "2"]:
-                    if len(field.subfield_labels) > 1:
-                        indexed_subfields = [sf + i for sf in field.subfield_labels]
-                        df[field.field + i] = df[indexed_subfields].apply(
-                            lambda x: " ".join(x), axis=1
-                        )
-                    df[field.field + i] = df[field.field + i].str.slice(
-                        0, field.max_length
+                    col = f"{field.field}_tokens{i}"
+                    df[col] = df[col].map(
+                        lambda tokens: "|".join([str(t) for t in tokens])
                     )
 
-            # If we aren't keeping the text fields at all, or if we've already combined them, drop.
-            if not self.preserve_text_fields or len(field.subfield_labels) > 1:
-                for i in ["1", "2"]:
-                    df = df.drop(columns=[sf + i for sf in field.subfield_labels])
+                if self.preserve_text_fields:
+                    for i in ["1", "2"]:
+                        if len(field.subfield_labels) > 1:
+                            indexed_subfields = [sf + i for sf in field.subfield_labels]
+                            df[field.field + i] = df[indexed_subfields].apply(
+                                lambda x: " ".join(x), axis=1
+                            )
+                        df[field.field + i] = df[field.field + i].str.slice(
+                            0, field.max_length
+                        )
+
+                # If we aren't keeping the text fields at all, or if we've already combined them, drop.
+                if not self.preserve_text_fields or len(field.subfield_labels) > 1:
+                    for i in ["1", "2"]:
+                        df = df.drop(columns=[sf + i for sf in field.subfield_labels])
+        else:
+            logger.info(f"Loading existing prepared data from {writepath}")
+            df = pd.read_csv(writepath)
+
+        if self.corrections_file is not None:
+            corrections = pd.read_csv(
+                os.path.join(self.data_dir, self.corrections_file)
+            )
+            df = update_label(
+                df,
+                corrections,
+                [f.field + "1" for f in self.fields]
+                + [f.field + "2" for f in self.fields],
+            )
 
         df_val = df.sample(frac=self.p_validation)
         df_train = df.drop(df_val.index)
 
         df.to_csv(writepath)
-        logger.info(f"Wrote prepared data to {self.prepared_file}")
-        df_train.to_csv(os.path.join(self.data_dir, self.train_file))
+
+        if write_prepared_file:
+            logger.info(f"Wrote prepared data to {self.prepared_file}")
+            df_train.to_csv(os.path.join(self.data_dir, self.train_file))
         logger.info(f"Wrote prepared training data to {self.train_file}")
         df_val.to_csv(os.path.join(self.data_dir, self.val_file))
         logger.info(f"Wrote prepared validation data to {self.val_file}")
