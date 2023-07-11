@@ -123,7 +123,7 @@ WITH ea_emails AS (
         email_field,
         state_field,
         RIGHT(REGEXP_REPLACE(raw_phone_field, '[^0-9]', ''), 10) AS phone_field,
-        first_name_field || '|' || last_name_field || '|' || email_field || '|' || phone_field || '|' || state_field as comp_string,
+        first_name_field || '|' || last_name_field || '|' || email_field || '|' || phone_field || '|' || state_field as comp_string
     FROM (
             SELECT *
             FROM ea_xwalks
