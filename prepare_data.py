@@ -18,6 +18,23 @@ def main():
         action="store_true",
         help="Overwrite existing prepared data file if it exists.",
     )
+    parser.add_argument(
+        "--overwrite-train-val",
+        action="store_true",
+        help="Overwrite existing train & val data file if it exists. Note that if"
+        " --overwrite is provided, the training and validation data will also be overwritten.",
+    )
+    parser.add_argument(
+        "--no-balance",
+        action="store_true",
+        help="Don't balance the classes in the prepared dataset.",
+    )
+    parser.add_argument(
+        "--shuffle",
+        action="store_true",
+        help="Randomize assignment of data to training and validation. Does nothing if not"
+        " writing to train & val data.",
+    )
     args = parser.parse_args()
 
     data_module = ContactDataModule(
@@ -27,9 +44,12 @@ def main():
         val_file=args.eval_data,
         corrections_file=args.corrections,
         fields=[lookup_field(f_name) for f_name in args.field_names],
+        balance_classes=not args.no_balance,
     )
     data_module.prepare_data(
         overwrite=args.overwrite,
+        overwrite_train_val=args.overwrite_train_val,
+        shuffle=args.shuffle,
     )
 
 

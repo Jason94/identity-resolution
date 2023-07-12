@@ -29,42 +29,37 @@ def simulate_typos(s: str, num_deletions: int = 0, num_swaps: int = 1) -> str:
 def generate_synthetic_data(data):
     synthetic_data = []
 
-    # Note: Rules 1 & 2 aren't really feasible with the existing architecture. It's just not possible
-    # for the model to produce radically different embeddings for slight character variations if no
-    # other data is present. It will probably require some kind of parallel output head that produces
-    # a "matchable" flag.
+    # Rule 1: If all data is present but the first and last names are reversed, it is a duplicate.
+    record1 = {
+        "first_name1": data["last_name"],
+        "last_name1": data["first_name"],
+        "email1": data["email"],
+        "phone1": data["phone"],
+        "state1": data["state"],
+        "first_name2": data["first_name"],
+        "last_name2": data["last_name"],
+        "email2": data["email"],
+        "phone2": data["phone"],
+        "state2": data["state"],
+        "label": 1,
+    }
+    synthetic_data.append(record1)
 
-    # # Rule 1: If all data is present but the first and last names are reversed, it is a duplicate.
-    # record1 = {
-    #     "first_name1": data["last_name"],
-    #     "last_name1": data["first_name"],
-    #     "email1": data["email"],
-    #     "phone1": data["phone"],
-    #     "state1": data["state"],
-    #     "first_name2": data["first_name"],
-    #     "last_name2": data["last_name"],
-    #     "email2": data["email"],
-    #     "phone2": data["phone"],
-    #     "state2": data["state"],
-    #     "label": 1,
-    # }
-    # synthetic_data.append(record1)
-
-    # # Rule 2: If the first initial is present and last name is present, but all other data is absence, it is distinct.
-    # record2 = {
-    #     "first_name1": data["first_name"][0],
-    #     "last_name1": data["last_name"],
-    #     "email1": "",
-    #     "phone1": "",
-    #     "state1": "",
-    #     "first_name2": data["first_name"],
-    #     "last_name2": data["last_name"],
-    #     "email2": data["email"],
-    #     "phone2": data["phone"],
-    #     "state2": data["state"],
-    #     "label": -1,
-    # }
-    # synthetic_data.append(record2)
+    # Rule 2: If the first initial is present and last name is present, but all other data is absence, it is distinct.
+    record2 = {
+        "first_name1": data["first_name"][0],
+        "last_name1": data["last_name"],
+        "email1": "",
+        "phone1": "",
+        "state1": "",
+        "first_name2": data["first_name"],
+        "last_name2": data["last_name"],
+        "email2": data["email"],
+        "phone2": data["phone"],
+        "state2": data["state"],
+        "label": -1,
+    }
+    synthetic_data.append(record2)
 
     # Rule 3: If the first initial is present and all other data is present, it is a duplicate.
     record3 = {
@@ -82,71 +77,76 @@ def generate_synthetic_data(data):
     }
     synthetic_data.append(record3)
 
-    # Rule 4 (part 1): If the first and last names match, and email matches,
-    #                  but phone and state are absent, it is a duplicate.
-    record4 = {
-        "first_name1": data["first_name"],
-        "last_name1": data["last_name"],
-        "email1": data["email"],
-        "phone1": "",
-        "state1": "",
-        "first_name2": data["first_name"],
-        "last_name2": data["last_name"],
-        "email2": data["email"],
-        "phone2": data["phone"],
-        "state2": data["state"],
-        "label": 1,
-    }
-    synthetic_data.append(record4)
+    # Note: Rules 4 - 7 aren't really feasible with the existing architecture. It's just not possible
+    # for the model to produce radically different embeddings for slight character variations if no
+    # other data is present. It will probably require some kind of parallel output head that produces
+    # a "matchable" flag.
 
-    # Rule 4 (part 2): If the first and last names match, and phone matches,
-    #                  but email and state are absent, it is a duplicate.
-    record5 = {
-        "first_name1": data["first_name"],
-        "last_name1": data["last_name"],
-        "email1": "",
-        "phone1": data["phone"],
-        "state1": "",
-        "first_name2": data["first_name"],
-        "last_name2": data["last_name"],
-        "email2": data["email"],
-        "phone2": data["phone"],
-        "state2": data["state"],
-        "label": 1,
-    }
-    synthetic_data.append(record5)
+    # # Rule 4 (part 1): If the first and last names match, and email matches,
+    # #                  but phone and state are absent, it is a duplicate.
+    # record4 = {
+    #     "first_name1": data["first_name"],
+    #     "last_name1": data["last_name"],
+    #     "email1": data["email"],
+    #     "phone1": "",
+    #     "state1": "",
+    #     "first_name2": data["first_name"],
+    #     "last_name2": data["last_name"],
+    #     "email2": data["email"],
+    #     "phone2": data["phone"],
+    #     "state2": data["state"],
+    #     "label": 1,
+    # }
+    # synthetic_data.append(record4)
 
-    # Rule 5: If only names are present, then a typo in first name is distinct.
-    record6 = {
-        "first_name1": simulate_typos(data["first_name"]),
-        "last_name1": data["last_name"],
-        "email1": "",
-        "phone1": "",
-        "state1": "",
-        "first_name2": data["first_name"],
-        "last_name2": data["last_name"],
-        "email2": "",
-        "phone2": "",
-        "state2": "",
-        "label": -1,
-    }
-    synthetic_data.append(record6)
+    # # Rule 4 (part 2): If the first and last names match, and phone matches,
+    # #                  but email and state are absent, it is a duplicate.
+    # record5 = {
+    #     "first_name1": data["first_name"],
+    #     "last_name1": data["last_name"],
+    #     "email1": "",
+    #     "phone1": data["phone"],
+    #     "state1": "",
+    #     "first_name2": data["first_name"],
+    #     "last_name2": data["last_name"],
+    #     "email2": data["email"],
+    #     "phone2": data["phone"],
+    #     "state2": data["state"],
+    #     "label": 1,
+    # }
+    # synthetic_data.append(record5)
 
-    # Rule 6: If only names are present, then a typo in last name is distinct.
-    record7 = {
-        "first_name1": data["first_name"],
-        "last_name1": simulate_typos(data["last_name"]),
-        "email1": "",
-        "phone1": "",
-        "state1": "",
-        "first_name2": data["first_name"],
-        "last_name2": data["last_name"],
-        "email2": "",
-        "phone2": "",
-        "state2": "",
-        "label": -1,
-    }
-    synthetic_data.append(record7)
+    # # Rule 5: If only names are present, then a typo in first name is distinct.
+    # record6 = {
+    #     "first_name1": simulate_typos(data["first_name"]),
+    #     "last_name1": data["last_name"],
+    #     "email1": "",
+    #     "phone1": "",
+    #     "state1": "",
+    #     "first_name2": data["first_name"],
+    #     "last_name2": data["last_name"],
+    #     "email2": "",
+    #     "phone2": "",
+    #     "state2": "",
+    #     "label": -1,
+    # }
+    # synthetic_data.append(record6)
+
+    # # Rule 6: If only names are present, then a typo in last name is distinct.
+    # record7 = {
+    #     "first_name1": data["first_name"],
+    #     "last_name1": simulate_typos(data["last_name"]),
+    #     "email1": "",
+    #     "phone1": "",
+    #     "state1": "",
+    #     "first_name2": data["first_name"],
+    #     "last_name2": data["last_name"],
+    #     "email2": "",
+    #     "phone2": "",
+    #     "state2": "",
+    #     "label": -1,
+    # }
+    # synthetic_data.append(record7)
 
     # Rule 7: If email and state match then a typo in first name is a duplicate.
     record8 = {

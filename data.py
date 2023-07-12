@@ -221,9 +221,20 @@ class ContactDataModule(pl.LightningDataModule):
     def prepare_data(
         self,
         overwrite: bool = False,
+        overwrite_train_val: bool = False,
+        shuffle: bool = False,
     ) -> None:
         writepath = os.path.join(self.data_dir, self.prepared_file)
         write_prepared_file = not os.path.exists(writepath) or overwrite
+
+        trainpath = os.path.join(self.data_dir, self.train_file)
+        valpath = os.path.join(self.data_dir, self.val_file)
+        write_train_val = (
+            not os.path.exists(valpath)
+            or not os.path.exists(trainpath)
+            or overwrite_train_val
+        )
+
         if write_prepared_file:
             logger.info("Assembling prepared data.")
 
@@ -293,7 +304,10 @@ class ContactDataModule(pl.LightningDataModule):
             logger.info(f"Loading existing prepared data from {writepath}")
             df = pd.read_csv(writepath, keep_default_na=False)
 
-        if self.corrections_file is not None:
+        if self.corrections_file is not None and (
+            write_prepared_file or write_train_val
+        ):
+            logger.info(f"Loading corrections from {self.corrections_file}")
             corrections = pd.read_csv(
                 os.path.join(self.data_dir, self.corrections_file),
                 keep_default_na=False,
@@ -305,17 +319,26 @@ class ContactDataModule(pl.LightningDataModule):
                 + [f.field + "2" for f in self.fields],
             )
 
-        df_val = df.sample(frac=self.p_validation)
-        df_train = df.drop(df_val.index)
-
         if write_prepared_file:
-            df.to_csv(writepath)
+            df.to_csv(writepath, index=False)
             logger.info(f"Wrote prepared data to {self.prepared_file}")
 
-        df_train.to_csv(os.path.join(self.data_dir, self.train_file))
-        logger.info(f"Wrote prepared training data to {self.train_file}")
-        df_val.to_csv(os.path.join(self.data_dir, self.val_file))
-        logger.info(f"Wrote prepared validation data to {self.val_file}")
+        if write_train_val or write_prepared_file:
+            if shuffle:
+                logger.info("Randomizing prepared data")
+                df = df.sample(frac=1)
+
+            df_val = df.sample(frac=self.p_validation)
+            df_train = df.drop(df_val.index)
+
+            df_train.to_csv(os.path.join(self.data_dir, self.train_file), index=False)
+            logger.info(f"Wrote prepared training data to {self.train_file}")
+            df_val.to_csv(os.path.join(self.data_dir, self.val_file), index=False)
+            logger.info(f"Wrote prepared validation data to {self.val_file}")
+        else:
+            logger.info(
+                f"Loading existing training and validation data from {self.train_file} and {self.val_file}"
+            )
 
     def _read_prepared_data(self, filepath: str, **dataset_args) -> ContactDataset:
         df = pd.read_csv(filepath, keep_default_na=False)

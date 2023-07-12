@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 import torch
 from torch import nn
 from torchvision.ops import MLP
@@ -221,6 +221,16 @@ class ContactEncoder(nn.Module):
 
         self.norm_proc_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
 
+        # --- Attn Combinations
+        self.proc_attn_comb = nn.Sequential(
+            nn.Linear(attn_dim, attn_dim),
+            nn.ReLU(),
+            nn.Dropout(p_dropout),
+            nn.Linear(attn_dim, attn_dim),
+        )
+
+        self.norm_proc_attn_comb = nn.LayerNorm(attn_dim, eps=norm_eps)
+
         # --- Final Output Processing
         self.output_embedding_dim = output_embedding_dim
         self.fc_output = nn.Sequential(
@@ -295,8 +305,8 @@ class ContactEncoder(nn.Module):
 
         # Pass through the multihead attention
         f_queries = self.f_que_layer(f_attn_input)
-        f_keys = self.key_layer(f_attn_input)
-        f_values = self.val_layer(f_attn_input)
+        f_keys = self.f_key_layer(f_attn_input)
+        f_values = self.f_val_layer(f_attn_input)
 
         f_attn_output, f_attn_output_weights = self.f_multihead_attn(
             f_queries, f_keys, f_values, key_padding_mask=attn_mask
@@ -336,15 +346,59 @@ class ContactEncoder(nn.Module):
 
         norm_output = self.norm_proc_attn(ff_output + norm_attn_output)
 
+        # --- Combine the attention outputs
+        combined_attn_output = self.proc_attn_comb(f_norm_output + norm_output)
+
+        norm_combined_attn_output = self.norm_proc_attn_comb(
+            combined_attn_output + f_norm_output + norm_output
+        )
+
         # --- Output
 
         # Produce a weighted sum of the character-wise embeddings to represent the input
-        final_attn_weights = attn_output_weights[:, -1, :]
-        weighted_sum_output = (final_attn_weights.unsqueeze(-1) * norm_output).sum(
-            dim=1
+
+        # We will take the average attention weight for the two attention layers
+        mean_attn_weigths = torch.mean(
+            torch.stack(
+                [f_attn_output_weights[:, -1, :], attn_output_weights[:, -1, :]]
+            ),
+            dim=0,
         )
+        weighted_sum_output = (
+            mean_attn_weigths.unsqueeze(-1) * norm_combined_attn_output
+        ).sum(dim=1)
 
         # Reshape the internal attented embedding to the output embedding
         output_embeddings = self.fc_output(weighted_sum_output)
 
         return output_embeddings
+
+    def example_tensor(self) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        """
+        This function creates an example tensor (all 0s) with batch size 1 for this model.
+
+        Returns:
+            (token_tensors, length_tensors): a tuple of lists of tensors.
+        """
+
+        # Initialize lists to store token tensors and length tensors
+        token_tensors = []
+        length_tensors = []
+
+        # Loop through each field in self.fields
+        for field in self.fields:
+            # Generate an example token tensor for this field
+            # We'll use a tensor of zeros, with dimensions:
+            # 1 (batch size) x field.max_length
+            token_tensor = torch.zeros((1, field.max_length)).long()
+
+            # The length tensor for this field is simply the max length of the field
+            # We need to add an extra dimension to create a 1D tensor
+            length_tensor = torch.full((1,), field.max_length)
+
+            # Add the token and length tensors for this field to the lists
+            token_tensors.append(token_tensor)
+            length_tensors.append(length_tensor)
+
+        # Return the token and length tensors as a tuple
+        return token_tensors, length_tensors

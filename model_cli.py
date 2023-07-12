@@ -107,6 +107,14 @@ def make_training_args(parser: Optional[ArgumentParser] = None) -> ArgumentParse
         ),
     )
     parser.add_argument("--learning_rate", type=float, default=5e-5)
+    parser.add_argument(
+        "--weight_decay",
+        type=float,
+        default=0.0,
+        help=(
+            "L2 regularization to prevent weight decay. 0.01 is a reasonable starting value."
+        ),
+    )
     parser.add_argument("--num_epochs", type=int, default=6)
     parser.add_argument(
         "--p_dropout",

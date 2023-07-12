@@ -42,6 +42,7 @@ class PlContactEncoder(pl.LightningModule):
         batch_size: Optional[int] = None,
         margin: Optional[float] = None,
         learning_rate: Optional[float] = None,
+        weight_decay: Optional[float] = None,
         num_epochs: Optional[int] = None,
         p_dropout: Optional[float] = None,
         version_name: Optional[str] = None,
@@ -70,12 +71,18 @@ class PlContactEncoder(pl.LightningModule):
         self.validation_labels = []
         self.validation_preds = []
 
-        self.save_hyperparameters(ignore=["encoder"])
+        self.save_hyperparameters(ignore=["encoder", "example_input"])
 
         if encoder:
             self.encoder = encoder
         else:
             self.encoder = ContactEncoder.from_namespace(Namespace(**self.hparams))
+
+        self.example_input_array = (
+            *self.encoder.example_tensor(),
+            *self.encoder.example_tensor(),
+            torch.tensor([-1]),
+        )
 
     def loss_function(
         self, margin: Optional[float] = None
@@ -175,8 +182,19 @@ class PlContactEncoder(pl.LightningModule):
         self.validation_preds.clear()
 
     def configure_optimizers(self) -> Any:
-        optimizer = optim.Adam(self.parameters(), lr=self.hparams.learning_rate)  # type: ignore
+        lr: float = self.hparams.learning_rate  # type: ignore
+        decay: float = self.hparams.weight_decay  # type: ignore
+        optimizer = optim.Adam(
+            self.parameters(),
+            lr=lr,
+            weight_decay=decay,
+        )
         return optimizer
+
+    def forward(
+        self, tokens1: List[torch.Tensor], lengths1: List[torch.Tensor], _, __, ___
+    ):
+        return self.encoder(tokens1, lengths1)
 
 
 def train(
@@ -220,7 +238,7 @@ def train(
     lightning_model.to(device)
 
     checkpoint_callback = ModelCheckpoint(
-        save_top_k=2,
+        save_top_k=4,
         monitor="val_f1",
         mode="max",
         filename="{epoch:02d}---{val_loss:.4f}-{val_f1:.4f}",
@@ -233,6 +251,7 @@ def train(
         metadata_header=[f.field for f in data_module.fields],
         maximum_embeddings_to_save=10000,
         version=lightning_model.hparams.version_name,  # type: ignore
+        log_graph=True,
     )
     trainer = pl.Trainer(
         max_epochs=args.num_epochs,
