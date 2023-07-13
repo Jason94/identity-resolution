@@ -535,7 +535,7 @@ class ContactSingletonDataModule(pl.LightningDataModule):
                 )
 
                 # Convert to a '|' delimited list for saving
-                col = f"{field.field}_tokens{i}"
+                col = f"{field.field}_tokens"
                 df[col] = df[col].map(lambda tokens: "|".join([str(t) for t in tokens]))
 
                 if self.preserve_text_fields:
