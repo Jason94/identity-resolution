@@ -116,8 +116,8 @@ def main():
     result_lists = []
 
     for tensor, record in results:
-        for embedding in tensor.tolist():
-            result_lists.append([record[PRIMARY_KEY], *embedding])  # type: ignore
+        for pkey, embedding in zip(record[PRIMARY_KEY].tolist(), tensor.tolist()):  # type: ignore
+            result_lists.append([pkey, *embedding])  # type: ignore
 
     embedding_dim = results[0][0].shape[1]
     uploads = Table(
