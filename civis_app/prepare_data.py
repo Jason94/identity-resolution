@@ -94,11 +94,14 @@ def main():
         data_lists=[DATA_PATH],
         batch_size=BATCH_SIZE,
     )
+    logger.info("Preparing data.")
+    pl_data.prepare_data()
     pl_model: pl.LightningModule = PlContactEncoder.load_from_checkpoint(
         SAVE_PATH, map_location=device
     )
     pl_trainer = pl.Trainer()
 
+    logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(
         pl_model,
         pl_data,
@@ -125,4 +128,5 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig()
     main()
