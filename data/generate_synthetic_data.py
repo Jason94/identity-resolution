@@ -244,7 +244,7 @@ def gather_data(n_contacts: int) -> List[dict]:
             LOWER(a.last_name) AS last_name,
             LOWER(a.email) AS email,
             LOWER(COALESCE(a.state, '')) as state,
-            LOWER(COALESCE(p.phone, '')) as phone,
+            RIGHT(REGEXP_REPLACE(LOWER(COALESCE(p.phone, '')), '[^0-9]', ''), 10) as phone,
             ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rownum
         FROM indivisible_ak.core_user a
         LEFT JOIN ak_phones p

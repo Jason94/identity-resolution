@@ -12,9 +12,9 @@ import logging
 
 from contrastive_metric import ContrastiveLoss, is_duplicate
 from model import ContactEncoder
-from config import *
+from config import *  # noqa: F403
 from data import ContactDataModule, Field, lookup_field
-from model_cli import *
+from model_cli import *  # noqa: F403
 from embedding_logger import TensorBoardEmbeddingLogger
 from utilities import transpose_dict_of_lists, split_field_dict
 
@@ -167,6 +167,10 @@ class PlContactEncoder(pl.LightningModule):
         )
         self.validation_labels.append(labels.cpu())
         self.validation_preds.append(pred.cpu())
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        tensors, lengths, *data = batch
+        return self.encoder(tensors, lengths), *data
 
     def on_validation_epoch_end(self) -> None:
         all_labels = torch.cat(self.validation_labels).numpy()

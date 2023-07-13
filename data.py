@@ -132,25 +132,30 @@ class ContactDataset(Dataset):
 
 
 class ContactDataModule(pl.LightningDataModule):
-    def is_valid(self, string: str) -> bool:
+    @staticmethod
+    def is_valid(vocabulary: List[str], string: str) -> bool:
         # Remove non-ascii entries
         for c in string:
-            if c not in self.vocabulary or c == PAD_CHARACTER:
+            if c not in vocabulary or c == PAD_CHARACTER:
                 return False
 
         return True
 
-    def valid_row(self, row: dict) -> bool:
+    @staticmethod
+    def valid_row(vocabulary: List[str], row: dict) -> bool:
         for s in row.values():
-            if not self.is_valid(s):
+            if not ContactDataModule.is_valid(vocabulary, s):
                 return False
 
         return True
 
-    def _read_data(self, filename):
+    @staticmethod
+    def _read_data(vocabulary: List[str], filename: str):
         with open(filename, "r", encoding="utf8") as file:
             reader = csv.DictReader(file)
-            data = [row for row in reader if self.valid_row(row)]
+            data = [
+                row for row in reader if ContactDataModule.valid_row(vocabulary, row)
+            ]
         return data
 
     @staticmethod
@@ -242,7 +247,7 @@ class ContactDataModule(pl.LightningDataModule):
             data = []
             for list in self.data_lists:
                 filename = os.path.join(self.data_dir, list)
-                file_data = self._read_data(filename)
+                file_data = ContactDataModule._read_data(self.vocabulary, filename)
                 logger.info(f"Found {len(file_data)} valid rows in {list}.csv")
                 data.extend(file_data)
 
@@ -275,7 +280,9 @@ class ContactDataModule(pl.LightningDataModule):
             for field in self.fields:
                 logger.info(f"Tokenizing {field.field} field")
                 df = df.join(
-                    df.apply(self.field_tokenizer(field, self.tokenize), axis=1)
+                    df.apply(
+                        ContactDataModule.field_tokenizer(field, self.tokenize), axis=1
+                    )
                 )
 
                 # Convert to a '|' delimited list for saving
@@ -400,5 +407,208 @@ class ContactDataModule(pl.LightningDataModule):
             [t.to(device) for t in token_tensors2],
             [t.to(device) for t in length_tensors2],
             labels.to(device),
+            *rem,
+        )
+
+
+class ContactSingletonDataset(Dataset):
+    def __init__(
+        self,
+        data: List[dict],
+        fields: List[Field],
+        return_field_values: bool = False,
+        return_record: bool = False,
+    ):
+        if return_field_values and return_record:
+            raise ValueError("Cannot return field values and full record.")
+
+        self.data = data
+        self.fields = fields
+        self.return_field_values = return_field_values
+        self.return_record = return_record
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx: int):
+        """Return (list of tokens 1, list of lengths 1) for each field idx."""
+        tokens = []
+        lengths = []
+        record = self.data[idx]
+
+        for f in self.fields:
+            tokens.append(record[f"{f.field}_tokens"])
+            lengths.append(record[f"{f.field}_length"])
+
+        # TODO: Clean this up a little. Probably have an enum for what retrun you want.
+        if self.return_field_values:
+            return (
+                tokens,
+                lengths,
+                self.get_field_values(idx),
+            )
+        elif self.return_record:
+            return (tokens, lengths, record)
+        else:
+            return tokens, lengths
+
+    def get_field_values(self, idx: int) -> dict:
+        field_values = {}
+
+        for f in self.fields:
+            field_values[f.field] = self.data[idx][f.field]
+
+        return field_values
+
+
+class ContactSingletonDataModule(pl.LightningDataModule):
+    @staticmethod
+    def field_tokenizer(
+        field: Field, tokenizer: Dict[str, int]
+    ) -> Callable[[dict], pd.Series]:
+        def _tokenize(row: dict) -> pd.Series:
+            data = []
+            indices = []
+            full_text = " ".join([row[subfield] for subfield in field.subfield_labels])
+            full_text = ContactDataModule._preprocess_field_text(full_text)
+            non_pad_length = len(full_text)
+
+            # Truncate or pad to max_length
+            full_text = full_text[: field.max_length].ljust(
+                field.max_length, PAD_CHARACTER
+            )
+
+            # Convert to a list of character tokens
+            tokens = [tokenizer[c] for c in full_text]
+
+            data.extend([tokens, non_pad_length])
+            indices.extend([f"{field.field}_tokens", f"{field.field}_length"])
+
+            return pd.Series(data, index=indices)
+
+        return _tokenize
+
+    def __init__(
+        self,
+        data_dir: str = "data",
+        data_lists: List[str] = [],
+        prepared_file: str = "prepared_data.csv",
+        batch_size: int = 16,
+        fields: List[Field] = ALL_FIELDS,
+        preserve_text_fields: bool = True,
+        return_record: bool = False,
+        return_eval_fields: bool = False,
+    ):
+        super().__init__()
+        self.data_dir = data_dir
+        self.data_lists = data_lists
+        self.prepared_file = prepared_file
+        self.batch_size = batch_size
+        self.fields = fields
+        self.tokenize, self.vocabulary = create_char_tokenizer()
+        self.preserve_text_fields = preserve_text_fields
+        self.return_record = return_record
+        self.return_eval_fields = return_eval_fields
+
+        self._val_dataloader = None
+
+    def prepare_data(
+        self,
+        overwrite: bool = False,
+        overwrite_train_val: bool = False,
+        shuffle: bool = False,
+    ) -> None:
+        writepath = os.path.join(self.data_dir, self.prepared_file)
+        write_prepared_file = not os.path.exists(writepath) or overwrite
+
+        if write_prepared_file:
+            logger.info("Assembling prepared data.")
+
+            logger.info(f"Preparing {len(self.data_lists)} lists")
+            data = []
+            for list in self.data_lists:
+                filename = os.path.join(self.data_dir, list)
+                file_data = ContactDataModule._read_data(self.vocabulary, filename)
+                logger.info(f"Found {len(file_data)} valid rows in {list}.csv")
+                data.extend(file_data)
+
+            df = pd.DataFrame(data, dtype="string")
+
+            logger.info(f"Saving {len(df)} rows.")
+
+            for field in self.fields:
+                logger.info(f"Tokenizing {field.field} field")
+                df = df.join(
+                    df.apply(
+                        ContactSingletonDataModule.field_tokenizer(
+                            field, self.tokenize
+                        ),
+                        axis=1,
+                    )
+                )
+
+                # Convert to a '|' delimited list for saving
+                col = f"{field.field}_tokens"
+                df[col] = df[col].map(lambda tokens: "|".join([str(t) for t in tokens]))
+
+                if self.preserve_text_fields or self.return_record:
+                    if len(field.subfield_labels) > 1:
+                        indexed_subfields = [sf for sf in field.subfield_labels]
+                        df[field.field] = df[indexed_subfields].apply(
+                            lambda x: " ".join(x), axis=1
+                        )
+                    df[field.field] = df[field.field].str.slice(0, field.max_length)
+
+                # If we aren't keeping the text fields at all, or if we've already combined them, drop.
+                if not self.return_record and (
+                    not self.preserve_text_fields or len(field.subfield_labels) > 1
+                ):
+                    df = df.drop(columns=[sf for sf in field.subfield_labels])
+        else:
+            logger.info(f"Loading existing prepared data from {writepath}")
+            df = pd.read_csv(writepath, keep_default_na=False)
+
+        if write_prepared_file:
+            df.to_csv(writepath, index=False)
+            logger.info(f"Wrote prepared data to {self.prepared_file}")
+
+    def _read_prepared_data(
+        self, filepath: str, **dataset_args
+    ) -> ContactSingletonDataset:
+        df = pd.read_csv(filepath, keep_default_na=False)
+        data = df.to_dict(orient="records")
+
+        for row in data:
+            for f in self.fields:
+                column = f"{f.field}_tokens"
+                row[column] = torch.tensor([int(t) for t in row[column].split("|")])
+
+        return ContactSingletonDataset(data, self.fields, **dataset_args)
+
+    def setup(
+        self,
+        stage: str,
+    ) -> None:
+        if stage == "predict":
+            self.predict_dataset = self._read_prepared_data(
+                os.path.join(self.data_dir, self.prepared_file),
+                return_field_values=self.preserve_text_fields
+                and not self.return_record,
+                return_record=self.return_record,
+            )
+
+        else:
+            raise NotImplementedError(f"Have not implemented data stage {stage}")
+
+    def predict_dataloader(self):
+        return DataLoader(self.predict_dataset, batch_size=self.batch_size)
+
+    def transfer_batch_to_device(
+        self, batch: Any, device: torch.device, dataloader_idx: int
+    ) -> Any:
+        (token_tensors, length_tensors, *rem) = batch
+        return (
+            [t.to(device) for t in token_tensors],
+            [t.to(device) for t in length_tensors],
             *rem,
         )

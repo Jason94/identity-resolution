@@ -1,1 +1,3 @@
 parsons
+python-dotenv
+annoy
