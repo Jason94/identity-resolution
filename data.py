@@ -576,7 +576,8 @@ class ContactSingletonDataModule(pl.LightningDataModule):
     ) -> None:
         if stage == "predict":
             self.predict_dataset = self._read_prepared_data(
-                os.path.join(self.data_dir, self.prepared_file)
+                os.path.join(self.data_dir, self.prepared_file),
+                return_field_values=self.preserve_text_fields,
             )
 
         else:

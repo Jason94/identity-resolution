@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import List, Optional
 import requests
 import logging
 
@@ -39,10 +40,10 @@ BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 SAVE_PATH = os.path.join(os.path.dirname(__file__), "model.pt")
 
 OUTPUT_TABLE = os.environ["OUTPUT_TABLE"]
-LIMIT = 10000
+LIMIT = 10_000_000
 
 
-def save_data():
+def save_data() -> Table:
     init_rs_env()
     rs = Redshift()
 
@@ -58,6 +59,8 @@ def save_data():
     logger.info(f"Found {data.num_rows} rows.")
 
     data.to_csv(DATA_PATH, encoding="utf8")
+
+    return data
 
 
 def get_model():
@@ -83,23 +86,40 @@ def main():
     else:
         logger.info("Found model.")
 
-    save_data()
+    raw_data = save_data().to_dicts()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pl_data = ContactSingletonDataModule(
         data_dir="",
         data_lists=[DATA_PATH],
         batch_size=BATCH_SIZE,
-        preserve_text_fields=False,
     )
     pl_model: pl.LightningModule = PlContactEncoder.load_from_checkpoint(
         SAVE_PATH, map_location=device
     )
     pl_trainer = pl.Trainer()
 
-    results = pl_trainer.predict(pl_model, pl_data)
+    results: Optional[List[torch.Tensor]] = pl_trainer.predict(
+        pl_model,
+        pl_data,
+    )  # type: ignore
 
-    print(results)
+    if results is None:
+        raise RuntimeError("Could not retrieve results.")
+
+    result_lists = []
+
+    for tensor in results:
+        for embedding in tensor.tolist():
+            result_lists.append([raw_data.pop()[PRIMARY_KEY], *embedding])
+
+    embedding_dim = results[0].shape[1]
+    uploads = Table(
+        [[PRIMARY_KEY, *[str(x) for x in range(0, embedding_dim)]], *result_lists]
+    )
+
+    rs = Redshift()
+    rs.copy(uploads, OUTPUT_TABLE, if_exists="drop")
 
 
 if __name__ == "__main__":
