@@ -7,6 +7,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from sklearn.metrics import precision_score, recall_score, f1_score
 from argparse import Namespace
 from pytorch_lightning.loggers import TensorBoardLogger
+from lightning.pytorch.loggers.logger import Logger as PlLogger
 import logging
 
 from contrastive_metric import ContrastiveLoss, is_duplicate
@@ -200,6 +201,7 @@ class PlContactEncoder(pl.LightningModule):
 def train(
     args: Namespace,
     data_module: ContactDataModule,
+    lightning_logger: Optional[PlLogger] = None,
 ):
     checkpoint_path: Optional[str] = args.checkpoint_path
 
@@ -246,13 +248,14 @@ def train(
         save_last=True,
     )
 
-    lightning_logger = TensorBoardEmbeddingLogger(
-        save_dir="",
-        metadata_header=[f.field for f in data_module.fields],
-        maximum_embeddings_to_save=10000,
-        version=lightning_model.hparams.version_name,  # type: ignore
-        log_graph=True,
-    )
+    if lightning_logger is None:
+        lightning_logger = TensorBoardEmbeddingLogger(
+            save_dir="",
+            metadata_header=[f.field for f in data_module.fields],
+            maximum_embeddings_to_save=10000,
+            version=lightning_model.hparams.version_name,  # type: ignore
+            log_graph=True,
+        )
     trainer = pl.Trainer(
         max_epochs=args.num_epochs,
         callbacks=[ModelSummary(max_depth=-1), checkpoint_callback],
@@ -279,6 +282,24 @@ def margin_experiment(args: Namespace):
             train(scenario_args, data_module)
 
 
+def embedding_experiment(args: Namespace, data_module: ContactDataModule):
+    start = 80
+    end = 120
+    step = 20
+    example_size = 4
+    hparam = "embedding_dim"
+
+    for value in [start + x * step for x in range(0, int((end - start) / step + 1))]:
+        scenario_args = Namespace(**{**vars(args), hparam: int(value)})
+
+        for i in range(0, example_size):
+            print(f"Experiment {i}: {hparam}={value}")
+            lightning_logger = TensorBoardLogger(
+                save_dir="", version=f"exp_{hparam}_{value:0.5f}__{i}"
+            )
+            train(scenario_args, data_module, lightning_logger)  # type: ignore
+
+
 if __name__ == "__main__":
     logging.basicConfig()
 
@@ -300,5 +321,6 @@ if __name__ == "__main__":
     args.vocab_size = len(data_module.vocabulary)
 
     # margin_experiment(args)
+    embedding_experiment(args, data_module)
 
-    train(args, data_module)
+    # train(args, data_module)
