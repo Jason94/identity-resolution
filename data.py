@@ -519,7 +519,7 @@ class ContactSingletonDataModule(pl.LightningDataModule):
                 logger.info(f"Found {len(file_data)} valid rows in {list}.csv")
                 data.extend(file_data)
 
-            df = pd.DataFrame(data, dtype="string").astype({"label": int})
+            df = pd.DataFrame(data, dtype="string")
 
             logger.info(f"Saving {len(df)} rows.")
 
