@@ -10,6 +10,9 @@ from utils import init_rs_env
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from train import PlContactEncoder  # noqa:E402
+from data import ContactSingletonDataModule  # noqa:E402
+import pytorch_lightning as pl
 
 if __name__ == "__main__":
     import importlib.util
@@ -28,11 +31,32 @@ logger.setLevel(logging.INFO)
 LOAD_DATA_QUERY = os.environ["LOAD_DATA_QUERY"]
 PRIMARY_KEY = os.environ["PRIMARY_KEY"]
 
+DATA_PATH = "data.csv"
+
 MODEL_URL = os.environ["MODEL_URL"]
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 SAVE_PATH = "model.pt"
 
 OUTPUT_TABLE = os.environ["OUTPUT_TABLE"]
 LIMIT = 10000
+
+
+def save_data():
+    init_rs_env()
+    rs = Redshift()
+
+    data = rs.query(LOAD_DATA_QUERY) or Table()
+
+    if data.num_rows == 0:
+        logger.info("No rows found. Exiting.")
+        sys.exit()
+    elif data.num_rows > LIMIT:
+        logger.info("{data.num_rows} greater than limit {LIMIT}.")
+        sys.exit()
+
+    logger.info(f"Found {data.num_rows} rows.")
+
+    data.to_csv(DATA_PATH)
 
 
 def get_model():
@@ -52,22 +76,21 @@ def get_model():
 
 
 def main():
-    init_rs_env()
-    rs = Redshift()
-
-    data = rs.query(LOAD_DATA_QUERY) or Table()
-
-    if data.num_rows == 0:
-        logger.info("No rows found. Exiting.")
-        sys.exit()
-    elif data.num_rows > LIMIT:
-        logger.info("{data.num_rows} greater than limit {LIMIT}.")
-        sys.exit()
-
-    logger.info(f"Found {data.num_rows} rows.")
-
     logger.info("Loading model.")
     get_model()
+
+    pl_data = ContactSingletonDataModule(
+        data_dir="",
+        prepared_file=DATA_PATH,
+        batch_size=BATCH_SIZE,
+        preserve_text_fields=False,
+    )
+    pl_model: pl.LightningModule = PlContactEncoder.load_from_checkpoint(SAVE_PATH)  # type: ignore
+    pl_trainer = pl.Trainer()
+
+    results = pl_trainer.predict(pl_model, pl_data)
+
+    print(results)
 
 
 if __name__ == "__main__":
