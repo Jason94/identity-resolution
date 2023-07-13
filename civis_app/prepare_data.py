@@ -13,7 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from train import PlContactEncoder  # noqa:E402
 from data import ContactSingletonDataModule  # noqa:E402
 import torch  # noqa:E402
-import pytorch_lightning as pl  # noqa:E402
+import lightning.pytorch as pl  # noqa:E402
 
 if __name__ == "__main__":
     import importlib.util
@@ -88,7 +88,7 @@ def main():
         preserve_text_fields=False,
     )
     pl_model: pl.LightningModule = PlContactEncoder.load_from_checkpoint(
-        SAVE_PATH, map_location=device  # type: ignore
+        SAVE_PATH, map_location=device
     )
     pl_trainer = pl.Trainer()
 
