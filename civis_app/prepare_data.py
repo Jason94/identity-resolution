@@ -107,6 +107,7 @@ def main():
     if results is None:
         raise RuntimeError("Could not retrieve results.")
 
+    logger.info("Preparing results for upload.")
     result_lists = []
 
     for tensor in results:
@@ -118,6 +119,7 @@ def main():
         [[PRIMARY_KEY, *[str(x) for x in range(0, embedding_dim)]], *result_lists]
     )
 
+    logger.info("Uploading results.")
     rs = Redshift()
     rs.copy(uploads, OUTPUT_TABLE, if_exists="drop")
 
