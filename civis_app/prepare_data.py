@@ -36,7 +36,7 @@ DATA_PATH = "data.csv"
 
 MODEL_URL = os.environ["MODEL_URL"]
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
-SAVE_PATH = "model.pt"
+SAVE_PATH = os.path.join(os.path.dirname(__file__), "model.pt")
 
 OUTPUT_TABLE = os.environ["OUTPUT_TABLE"]
 LIMIT = 10000
@@ -57,7 +57,7 @@ def save_data():
 
     logger.info(f"Found {data.num_rows} rows.")
 
-    data.to_csv(DATA_PATH)
+    data.to_csv(DATA_PATH, encoding="utf8")
 
 
 def get_model():
@@ -77,13 +77,18 @@ def get_model():
 
 
 def main():
-    logger.info("Loading model.")
-    get_model()
+    if not os.path.exists(SAVE_PATH):
+        logger.info("Loading model.")
+        get_model()
+    else:
+        logger.info("Found model.")
+
+    save_data()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pl_data = ContactSingletonDataModule(
         data_dir="",
-        prepared_file=DATA_PATH,
+        data_lists=[DATA_PATH],
         batch_size=BATCH_SIZE,
         preserve_text_fields=False,
     )
