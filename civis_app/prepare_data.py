@@ -12,7 +12,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from train import PlContactEncoder  # noqa:E402
 from data import ContactSingletonDataModule  # noqa:E402
-import pytorch_lightning as pl
+import torch  # noqa:E402
+import pytorch_lightning as pl  # noqa:E402
 
 if __name__ == "__main__":
     import importlib.util
@@ -79,13 +80,16 @@ def main():
     logger.info("Loading model.")
     get_model()
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pl_data = ContactSingletonDataModule(
         data_dir="",
         prepared_file=DATA_PATH,
         batch_size=BATCH_SIZE,
         preserve_text_fields=False,
     )
-    pl_model: pl.LightningModule = PlContactEncoder.load_from_checkpoint(SAVE_PATH)  # type: ignore
+    pl_model: pl.LightningModule = PlContactEncoder.load_from_checkpoint(
+        SAVE_PATH, map_location=device  # type: ignore
+    )
     pl_trainer = pl.Trainer()
 
     results = pl_trainer.predict(pl_model, pl_data)
