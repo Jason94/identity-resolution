@@ -167,8 +167,9 @@ class PlContactEncoder(pl.LightningModule):
         self.validation_labels.append(labels.cpu())
         self.validation_preds.append(pred.cpu())
 
-    def predict_step(self, batch, batch_idx, dataloader_idx=0) -> None:
-        return self.encoder(*batch)
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        tensors, lengths, *data = batch
+        return self.encoder(tensors, lengths), *data
 
     def on_validation_epoch_end(self) -> None:
         all_labels = torch.cat(self.validation_labels).numpy()

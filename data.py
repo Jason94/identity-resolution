@@ -413,11 +413,19 @@ class ContactDataModule(pl.LightningDataModule):
 
 class ContactSingletonDataset(Dataset):
     def __init__(
-        self, data: List[dict], fields: List[Field], return_field_values: bool = False
+        self,
+        data: List[dict],
+        fields: List[Field],
+        return_field_values: bool = False,
+        return_record: bool = False,
     ):
+        if return_field_values and return_record:
+            raise ValueError("Cannot return field values and full record.")
+
         self.data = data
         self.fields = fields
         self.return_field_values = return_field_values
+        self.return_record = return_record
 
     def __len__(self):
         return len(self.data)
@@ -432,12 +440,15 @@ class ContactSingletonDataset(Dataset):
             tokens.append(record[f"{f.field}_tokens"])
             lengths.append(record[f"{f.field}_length"])
 
+        # TODO: Clean this up a little. Probably have an enum for what retrun you want.
         if self.return_field_values:
             return (
                 tokens,
                 lengths,
                 self.get_field_values(idx),
             )
+        elif self.return_record:
+            return (tokens, lengths, record)
         else:
             return tokens, lengths
 
@@ -485,6 +496,7 @@ class ContactSingletonDataModule(pl.LightningDataModule):
         batch_size: int = 16,
         fields: List[Field] = ALL_FIELDS,
         preserve_text_fields: bool = True,
+        return_record: bool = False,
         return_eval_fields: bool = False,
     ):
         super().__init__()
@@ -495,6 +507,7 @@ class ContactSingletonDataModule(pl.LightningDataModule):
         self.fields = fields
         self.tokenize, self.vocabulary = create_char_tokenizer()
         self.preserve_text_fields = preserve_text_fields
+        self.return_record = return_record
         self.return_eval_fields = return_eval_fields
 
         self._val_dataloader = None
@@ -538,7 +551,7 @@ class ContactSingletonDataModule(pl.LightningDataModule):
                 col = f"{field.field}_tokens"
                 df[col] = df[col].map(lambda tokens: "|".join([str(t) for t in tokens]))
 
-                if self.preserve_text_fields:
+                if self.preserve_text_fields or self.return_record:
                     if len(field.subfield_labels) > 1:
                         indexed_subfields = [sf for sf in field.subfield_labels]
                         df[field.field] = df[indexed_subfields].apply(
@@ -547,7 +560,9 @@ class ContactSingletonDataModule(pl.LightningDataModule):
                     df[field.field] = df[field.field].str.slice(0, field.max_length)
 
                 # If we aren't keeping the text fields at all, or if we've already combined them, drop.
-                if not self.preserve_text_fields or len(field.subfield_labels) > 1:
+                if not self.return_record and (
+                    not self.preserve_text_fields or len(field.subfield_labels) > 1
+                ):
                     df = df.drop(columns=[sf for sf in field.subfield_labels])
         else:
             logger.info(f"Loading existing prepared data from {writepath}")
@@ -577,7 +592,9 @@ class ContactSingletonDataModule(pl.LightningDataModule):
         if stage == "predict":
             self.predict_dataset = self._read_prepared_data(
                 os.path.join(self.data_dir, self.prepared_file),
-                return_field_values=self.preserve_text_fields,
+                return_field_values=self.preserve_text_fields
+                and not self.return_record,
+                return_record=self.return_record,
             )
 
         else:

@@ -27,7 +27,7 @@ if __name__ == "__main__":
         dotenv.load_dotenv(override=True)
 
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 LOAD_DATA_QUERY = os.environ["LOAD_DATA_QUERY"]
@@ -86,20 +86,22 @@ def main():
     else:
         logger.info("Found model.")
 
-    raw_data = save_data().to_dicts()
+    save_data().to_dicts()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pl_data = ContactSingletonDataModule(
         data_dir="",
         data_lists=[DATA_PATH],
         batch_size=BATCH_SIZE,
+        return_record=True,
+        preserve_text_fields=False,
     )
     logger.info("Preparing data.")
-    pl_data.prepare_data()
+    pl_data.prepare_data(overwrite=True)
     pl_model: pl.LightningModule = PlContactEncoder.load_from_checkpoint(
         SAVE_PATH, map_location=device
     )
-    pl_trainer = pl.Trainer()
+    pl_trainer = pl.Trainer(enable_progress_bar=False)
 
     logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(
@@ -113,11 +115,11 @@ def main():
     logger.info("Preparing results for upload.")
     result_lists = []
 
-    for tensor in results:
+    for tensor, record in results:
         for embedding in tensor.tolist():
-            result_lists.append([raw_data.pop()[PRIMARY_KEY], *embedding])
+            result_lists.append([record[PRIMARY_KEY], *embedding])  # type: ignore
 
-    embedding_dim = results[0].shape[1]
+    embedding_dim = results[0][0].shape[1]
     uploads = Table(
         [[PRIMARY_KEY, *[str(x) for x in range(0, embedding_dim)]], *result_lists]
     )

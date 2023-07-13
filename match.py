@@ -30,7 +30,8 @@ if __name__ == "__main__":
         print("Could not find model.")
         sys.exit()
 
-    pl_model = PlContactEncoder.load_from_checkpoint(model_fname)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    pl_model = PlContactEncoder.load_from_checkpoint(model_fname, map_location=device)
 
     model = pl_model.encoder
     model.to(device)
