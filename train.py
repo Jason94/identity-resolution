@@ -187,12 +187,16 @@ def train(
     if checkpoint_path is not None:
         logger.info(f"Loading model from {checkpoint_path}")
         lightning_model = PlContactEncoder.load_from_checkpoint(checkpoint_path)
+        metric = type(lightning_model.hparams.metric)(  # type: ignore
+            margin=lightning_model.hparams.metric.margin.margin,  # type: ignore
+            threshold=args.threshold,
+        )  # type: ignore
         lightning_model.save_hyperparameters(
             {
                 "batch_size": args.batch_size,
                 "training_data": args.training_data,
                 "eval_data": args.eval_data,
-                "threshold": args.threshold,
+                "metric": metric,
                 "version_name": (
                     args.version_name or lightning_model.hparams.version_name  # type: ignore
                 ),

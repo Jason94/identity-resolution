@@ -1,20 +1,18 @@
 import os
 import sys
 from typing import List, Optional
-import requests
 import logging
+import torch
+import lightning.pytorch as pl
 
 from parsons.databases.redshift import Redshift
 from parsons import Table
 
-from utils import init_rs_env
+from utils import init_rs_env, get_model
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from train import PlContactEncoder  # noqa:E402
 from data import ContactSingletonDataModule  # noqa:E402
-import torch  # noqa:E402
-import lightning.pytorch as pl  # noqa:E402
 
 if __name__ == "__main__":
     import importlib.util
@@ -35,9 +33,7 @@ PRIMARY_KEY = os.environ["PRIMARY_KEY"]
 
 DATA_PATH = "data.csv"
 
-MODEL_URL = os.environ["MODEL_URL"]
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
-SAVE_PATH = os.path.join(os.path.dirname(__file__), "model.pt")
 
 OUTPUT_TABLE = os.environ["OUTPUT_TABLE"]
 LIMIT = 10_000_000
@@ -63,32 +59,9 @@ def save_data() -> Table:
     return data
 
 
-def get_model():
-    # Send a GET request to download the model
-    response = requests.get(MODEL_URL, stream=True)
-
-    # Check if the request was successful
-    if response.status_code == 200:
-        with open(SAVE_PATH, "wb") as file:
-            for chunk in response.iter_content(chunk_size=1024):
-                file.write(chunk)
-        logger.info("Model downloaded successfully!")
-    else:
-        raise ConnectionError(
-            f"Failed to download model. Response code: {response.status_code}"
-        )
-
-
 def main():
-    if not os.path.exists(SAVE_PATH):
-        logger.info("Loading model.")
-        get_model()
-    else:
-        logger.info("Found model.")
-
     save_data().to_dicts()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pl_data = ContactSingletonDataModule(
         data_dir="",
         data_lists=[DATA_PATH],
@@ -98,10 +71,8 @@ def main():
     )
     logger.info("Preparing data.")
     pl_data.prepare_data(overwrite=True)
-    pl_model: pl.LightningModule = PlContactEncoder.load_from_checkpoint(
-        SAVE_PATH, map_location=device
-    )
     pl_trainer = pl.Trainer(enable_progress_bar=False)
+    pl_model = get_model()
 
     logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(
