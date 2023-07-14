@@ -113,3 +113,6 @@ class ContrastiveMetric(Metric):
     @property
     def annoy_metric(self) -> str:
         return "euclidean"
+
+    def __repr__(self):
+        return f"ContrastiveMetric(margin={self.margin}, threshold={self.threshold})"

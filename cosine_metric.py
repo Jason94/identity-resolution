@@ -60,3 +60,6 @@ class CosineMetric(Metric):
     @property
     def annoy_metric(self) -> str:
         return "angular"
+
+    def __repr__(self):
+        return f"CosineMetric(margin={self.margin}, threshold={self.threshold})"

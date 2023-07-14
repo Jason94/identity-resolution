@@ -51,4 +51,8 @@ def get_model() -> PlContactEncoder:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Found device {device}")
 
-    return PlContactEncoder.load_from_checkpoint(SAVE_PATH, map_location=device)
+    model = PlContactEncoder.load_from_checkpoint(SAVE_PATH, map_location=device)
+    print(model.hparams)
+    print(model.hparams.metric)  # type: ignore
+
+    return model
