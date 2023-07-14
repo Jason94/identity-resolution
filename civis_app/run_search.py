@@ -43,7 +43,7 @@ logger.setLevel(logging.INFO)
 def load_data(
     pl_model: PlContactEncoder, rs: Redshift
 ) -> Tuple[List[List[float]], Dict[int, int]]:
-    embedding_dim: int = pl_model.hparams.embedding_dim  # type: ignore
+    embedding_dim: int = pl_model.hparams.output_embedding_dim  # type: ignore
     raw_data = rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY {PRIMARY_KEY};")
 
     if raw_data is None:
