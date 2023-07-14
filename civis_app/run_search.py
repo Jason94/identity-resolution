@@ -13,6 +13,7 @@ from utils import init_rs_env, get_model
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from metric import Metric  # noqa:E402
+from train import PlContactEncoder  # noqa:E402
 
 if __name__ == "__main__":
     import importlib.util
@@ -27,7 +28,6 @@ if __name__ == "__main__":
         )
 
 SOURCE_TABLE = os.environ["SOURCE_TABLE"]
-EMBEDDING_DIM = int(os.environ["EMBEDDING_DIM"])
 PRIMARY_KEY = os.environ["PRIMARY_KEY"]
 
 THRESHOLD = os.getenv("THRESHOLD")
@@ -40,7 +40,10 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def load_data(rs: Redshift) -> Tuple[List[List[float]], Dict[int, int]]:
+def load_data(
+    pl_model: PlContactEncoder, rs: Redshift
+) -> Tuple[List[List[float]], Dict[int, int]]:
+    embedding_dim: int = pl_model.hparams.embedding_dim  # type: ignore
     raw_data = rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY {PRIMARY_KEY};")
 
     if raw_data is None:
@@ -54,7 +57,7 @@ def load_data(rs: Redshift) -> Tuple[List[List[float]], Dict[int, int]]:
 
     for row in raw_data:
         index_id_map[i] = row[PRIMARY_KEY]
-        vectors.append([row[f"x_{n}"] for n in range(0, EMBEDDING_DIM)])
+        vectors.append([row[f"x_{n}"] for n in range(0, embedding_dim)])
 
         i += 1
         if i % 100_000 == 0:
@@ -110,7 +113,7 @@ def main():
     metric: Metric = model.hparams.metric  # type: ignore
 
     logger.info("Loading data from source table.")
-    vectors, index_pkey_map = load_data(rs)
+    vectors, index_pkey_map = load_data(model, rs)
 
     logger.info("Identifying duplicates.")
     duplicates = find_duplicates(vectors, metric)
