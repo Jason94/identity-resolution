@@ -24,3 +24,7 @@ class Metric(ABC):
     @abstractmethod
     def annoy_metric(self) -> str:
         pass
+
+    @abstractmethod
+    def distance_matches(self, dist: float) -> bool:
+        pass
