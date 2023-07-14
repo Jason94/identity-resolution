@@ -10,7 +10,6 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from lightning.pytorch.loggers.logger import Logger as PlLogger
 import logging
 
-from contrastive_metric import ContrastiveLoss, is_duplicate
 from model import ContactEncoder
 from config import *  # noqa: F403
 from data import ContactDataModule, Field, lookup_field
@@ -18,7 +17,8 @@ from model_cli import *  # noqa: F403
 from embedding_logger import TensorBoardEmbeddingLogger
 from utilities import transpose_dict_of_lists, split_field_dict
 from metric import Metric
-from cosine_metric import CosineMetric
+from cosine_metric import CosineMetric  # noqa:F401
+from contrastive_metric import ContrastiveMetric  # noqa:F401
 
 
 logger = logging.getLogger(__name__)
@@ -199,15 +199,18 @@ def train(
             }
         )
         print(lightning_model.hparams)
+        print(f"Margin: {lightning_model.hparams.metric.margin}")  # type: ignore
+        print(f"Threshold: {lightning_model.hparams.metric.threshold}")  # type: ignore
     else:
-        metric = CosineMetric(args.margin, args.threshold)
+        args.metric = globals()[args.metric](
+            margin=args.margin, threshold=args.threshold
+        )
         delattr(args, "margin")
         delattr(args, "threshold")
         lightning_model = PlContactEncoder(
             **{
                 **vars(args),
                 "vocab_size": len(data_module.vocabulary),
-                "metric": metric,
             }
         )
         lightning_model._save_to_state_dict

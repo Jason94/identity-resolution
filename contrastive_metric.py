@@ -104,13 +104,11 @@ class ContrastiveMetric(Metric):
 
     @property
     def loss(self) -> nn.Module:
-        margin: float = self.hparams.margin  # type: ignore
-        return ContrastiveLoss(margin)
+        return ContrastiveLoss(self.margin)
 
     @property
     def similarity_function(self) -> Callable[[Tensor, Tensor], Tuple[Tensor, Tensor]]:
-        thresh: float = self.hparams.threshold  # type: ignore
-        return is_duplicate(thresh, True)
+        return is_duplicate(self.threshold, True)
 
     @property
     def annoy_metric(self) -> str:

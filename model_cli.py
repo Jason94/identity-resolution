@@ -17,6 +17,15 @@ def make_universal_args(parser: Optional[ArgumentParser] = None) -> ArgumentPars
         ),
         default=[f.field for f in ALL_FIELDS],
     )
+    parser.add_argument(
+        "--metric",
+        help=(
+            "The metric to use to determine distance between two embedding vectors. 'CosineMetric'"
+            " or 'ContrastiveMetric' (euclidean). WARNING: Margin and threshold values differ conceptually"
+            " for different metrics. WARNING: Do NOT mix metrics for pre-trained models!"
+        ),
+        default="ContrastiveMetric",
+    )
     return parser
 
 
