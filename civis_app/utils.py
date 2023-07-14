@@ -53,6 +53,5 @@ def get_model() -> PlContactEncoder:
 
     model = PlContactEncoder.load_from_checkpoint(SAVE_PATH, map_location=device)
     print(model.hparams)
-    print(model.hparams.metric)  # type: ignore
 
     return model

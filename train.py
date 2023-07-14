@@ -188,7 +188,7 @@ def train(
         logger.info(f"Loading model from {checkpoint_path}")
         lightning_model = PlContactEncoder.load_from_checkpoint(checkpoint_path)
         metric = type(lightning_model.hparams.metric)(  # type: ignore
-            margin=lightning_model.hparams.metric.margin.margin,  # type: ignore
+            margin=lightning_model.hparams.metric.margin,  # type: ignore
             threshold=args.threshold,
         )  # type: ignore
         lightning_model.save_hyperparameters(
@@ -200,11 +200,10 @@ def train(
                 "version_name": (
                     args.version_name or lightning_model.hparams.version_name  # type: ignore
                 ),
+                "learning_rate": args.learning_rate,
             }
         )
         print(lightning_model.hparams)
-        print(f"Margin: {lightning_model.hparams.metric.margin}")  # type: ignore
-        print(f"Threshold: {lightning_model.hparams.metric.threshold}")  # type: ignore
     else:
         args.metric = globals()[args.metric](
             margin=args.margin, threshold=args.threshold
