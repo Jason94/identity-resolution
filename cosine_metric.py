@@ -51,13 +51,11 @@ class CosineMetric(Metric):
 
     @property
     def loss(self) -> nn.Module:
-        margin: float = self.hparams.margin  # type: ignore
-        return nn.CosineEmbeddingLoss(margin=margin)
+        return nn.CosineEmbeddingLoss(margin=self.margin)
 
     @property
     def similarity_function(self) -> Callable[[Tensor, Tensor], Tuple[Tensor, Tensor]]:
-        thresh: float = self.hparams.threshold  # type: ignore
-        return is_duplicate_cosine(thresh, True)
+        return is_duplicate_cosine(self.threshold, True)
 
     @property
     def annoy_metric(self) -> str:

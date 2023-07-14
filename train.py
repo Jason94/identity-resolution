@@ -42,9 +42,7 @@ class PlContactEncoder(pl.LightningModule):
         source_files: Optional[List[str]] = None,
         training_data: Optional[str] = None,
         eval_data: Optional[str] = None,
-        threshold: Optional[float] = None,
         batch_size: Optional[int] = None,
-        margin: Optional[float] = None,
         learning_rate: Optional[float] = None,
         weight_decay: Optional[float] = None,
         num_epochs: Optional[int] = None,
@@ -202,11 +200,14 @@ def train(
         )
         print(lightning_model.hparams)
     else:
+        metric = CosineMetric(args.margin, args.threshold)
+        delattr(args, "margin")
+        delattr(args, "threshold")
         lightning_model = PlContactEncoder(
             **{
                 **vars(args),
                 "vocab_size": len(data_module.vocabulary),
-                "metric": CosineMetric(args.margin, args.threshold),
+                "metric": metric,
             }
         )
         lightning_model._save_to_state_dict
