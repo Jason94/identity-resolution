@@ -36,9 +36,7 @@ logger.setLevel(logging.INFO)
 
 
 def load_data(rs: Redshift) -> Tuple[List[List[float]], Dict[int, int]]:
-    raw_data = rs.query(
-        f"SELECT * FROM {SOURCE_TABLE} ORDER BY {PRIMARY_KEY} LIMIT 15;"
-    )
+    raw_data = rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY {PRIMARY_KEY};")
 
     if raw_data is None:
         raise ConnectionError("Error retrieving data from the database.")
@@ -76,20 +74,16 @@ def find_duplicates(vectors, threshold) -> List[List[int]]:
     for i in range(len(vectors)):
         if i not in handled_indexes:
             similar_items = t.get_nns_by_item(
-                i, len(vectors), search_k=SEARCH_K, include_distances=True
+                i, 2, search_k=SEARCH_K, include_distances=True
             )
 
-            # items within the threshold are considered duplicates
-            item_duplicates = [
-                item
-                for item, dist in zip(*similar_items)
-                if dist <= threshold and item != i
-            ]
+            closest = similar_items[0][1]
+            dist = similar_items[1][1]
 
-            if len(item_duplicates) > 0:
-                item_duplicates.append(i)
-                handled_indexes = handled_indexes.union(item_duplicates)
-                equivalence_classes.append(item_duplicates)
+            if dist <= threshold and closest not in handled_indexes:
+                pair = [i, closest]
+                handled_indexes = handled_indexes.union(pair)
+                equivalence_classes.append(pair)
 
     return equivalence_classes
 
