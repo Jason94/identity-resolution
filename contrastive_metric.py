@@ -1,6 +1,9 @@
+from typing import Callable, Tuple
 import torch
 import torch.nn as nn
+from torch import Tensor
 from torch.nn.functional import pairwise_distance
+from metric import Metric
 
 
 def is_duplicate(threshold, return_distance=True):
@@ -8,10 +11,14 @@ def is_duplicate(threshold, return_distance=True):
     Create a function to determine if two embeddings represent the same class (a duplicate) or not.
 
     Args:
-        threshold (float): The distance threshold for determining duplicates. If the distance between the embeddings is less than this value, the inputs are considered duplicates.
+        threshold (float): The distance threshold for determining duplicates.
+            If the distance between the embeddings is less than this value,
+            the inputs are considered duplicates.
 
     Returns:
-        callable: A function that takes two embeddings and returns True if the inputs are duplicates (i.e., the distance between the embeddings is less than the threshold), False otherwise.
+        callable: A function that takes two embeddings and returns True if the
+            inputs are duplicates (i.e., the distance between the embeddings is
+            less than the threshold), False otherwise.
     """
 
     def _is_duplicate(embedding1, embedding2):
@@ -22,7 +29,8 @@ def is_duplicate(threshold, return_distance=True):
             embedding1, embedding2 (torch.Tensor): The two embeddings to compare.
 
         Returns:
-            tensor[bool]: True if the inputs are duplicates (i.e., the distance between the embeddings is less than the threshold), False otherwise.
+            tensor[bool]: True if the inputs are duplicates (i.e., the distance between
+                the embeddings is less than the threshold), False otherwise.
         """
         distance = pairwise_distance(embedding1, embedding2)
 
@@ -37,7 +45,8 @@ def is_duplicate(threshold, return_distance=True):
 class ContrastiveLoss(nn.Module):
     """
     Contrastive loss function.
-    Takes embeddings of two samples and a target label == 1 if samples are from the same class and label == -1 otherwise.
+    Takes embeddings of two samples and a target label == 1 if samples are from the same class
+        and label == -1 otherwise.
 
     This class inherits from PyTorch's Module class.
     """
@@ -47,7 +56,8 @@ class ContrastiveLoss(nn.Module):
         Initialize the ContrastiveLoss instance.
 
         Args:
-            margin (float): Margin for the contrastive loss. This is a hyperparameter that determines the minimum distance between the embeddings of distinct pairs.
+            margin (float): Margin for the contrastive loss. This is a hyperparameter
+                that determines the minimum distance between the embeddings of distinct pairs.
         """
         super(ContrastiveLoss, self).__init__()
         self.margin = margin
@@ -60,18 +70,21 @@ class ContrastiveLoss(nn.Module):
 
         Args:
             output1, output2 (torch.Tensor): Embeddings for the two input samples.
-            target (torch.Tensor): Contains the target labels. 1 indicates the samples are from the same class, -1 indicates they are from different classes.
+            target (torch.Tensor): Contains the target labels. 1 indicates the samples
+                are from the same class, -1 indicates they are from different classes.
         """
         # Calculate the Euclidean distance between the two output embeddings.
         distances = self.pdist(output1, output2)
 
         # Implement the contrastive loss formula.
-        # If the target == 1 (samples from the same class), the first term of the loss becomes active and
-        # the algorithm attempts to minimize the distance between the two embeddings.
+        # If the target == 1 (samples from the same class), the first term of the loss
+        # becomes active and the algorithm attempts to minimize the distance between
+        # the two embeddings.
         same_class_loss = (target == 1).float() * distances
 
-        # If the target == -1 (samples from different classes), the second term of the loss becomes active and
-        # the algorithm attempts to maximize the distance between the two embeddings, up to a certain margin.
+        # If the target == -1 (samples from different classes), the second term of the
+        # loss becomes active and the algorithm attempts to maximize the distance between
+        # the two embeddings, up to a certain margin.
         distinct_class_loss = (target == -1).float() * torch.relu(
             self.margin - distances
         ).float()
@@ -81,3 +94,24 @@ class ContrastiveLoss(nn.Module):
 
         # Return the mean of the losses.
         return losses.mean()
+
+
+class ContrastiveMetric(Metric):
+    def __init__(self, margin: float, threshold: float):
+        super().__init__()
+        self.margin = margin
+        self.threshold = threshold
+
+    @property
+    def loss(self) -> nn.Module:
+        margin: float = self.hparams.margin  # type: ignore
+        return ContrastiveLoss(margin)
+
+    @property
+    def similarity_function(self) -> Callable[[Tensor, Tensor], Tuple[Tensor, Tensor]]:
+        thresh: float = self.hparams.threshold  # type: ignore
+        return is_duplicate(thresh, True)
+
+    @property
+    def annoy_metric(self) -> str:
+        return "euclidean"

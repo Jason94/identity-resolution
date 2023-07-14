@@ -238,9 +238,11 @@ class ContactEncoder(nn.Module):
                 attn_dim,
                 [attn_dim] * output_mlp_layers,
                 norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
-                activation_layer=lambda: nn.Tanh(),
+                # activation_layer=lambda: nn.Tanh(),
             ),
             nn.Dropout(p_dropout),
+            nn.Linear(attn_dim, attn_dim),
+            nn.Linear(attn_dim, attn_dim),
             nn.Linear(attn_dim, output_embedding_dim),
         )
 
