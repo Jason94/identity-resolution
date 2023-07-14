@@ -52,6 +52,6 @@ def get_model() -> PlContactEncoder:
     logger.info(f"Found device {device}")
 
     model = PlContactEncoder.load_from_checkpoint(SAVE_PATH, map_location=device)
-    print(model.hparams)
+    logger.info(model.hparams)
 
     return model
