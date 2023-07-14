@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import Dict, List, Tuple
 from annoy import AnnoyIndex
 import logging
@@ -7,7 +8,11 @@ from uuid import uuid4
 from parsons import Table
 from parsons.databases.redshift import Redshift
 
-from utils import init_rs_env
+from utils import init_rs_env, get_model
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from metric import Metric  # noqa:E402
 
 if __name__ == "__main__":
     import importlib.util
@@ -58,7 +63,7 @@ def load_data(rs: Redshift) -> Tuple[List[List[float]], Dict[int, int]]:
     return vectors, index_id_map
 
 
-def find_duplicates(vectors, threshold) -> List[List[int]]:
+def find_duplicates(vectors, threshold, metric: str) -> List[List[int]]:
     f = len(vectors[0])
     t = AnnoyIndex(f, "euclidean")
 
@@ -92,11 +97,14 @@ def main():
     init_rs_env()
     rs = Redshift()
 
+    model = get_model()
+    metric: Metric = model.hparams.metric  # type: ignore
+
     logger.info("Loading data from source table.")
     vectors, index_pkey_map = load_data(rs)
 
     logger.info("Identifying duplicates.")
-    duplicates = find_duplicates(vectors, THRESHOLD)
+    duplicates = find_duplicates(vectors, THRESHOLD, metric.annoy_metric)
 
     logger.info("Preparing data for upload.")
     item_classes = []

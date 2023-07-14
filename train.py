@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, Tuple, List
+from typing import Any, Optional, List
 import torch
 from torch import optim
 import lightning.pytorch as pl
@@ -10,13 +10,16 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from lightning.pytorch.loggers.logger import Logger as PlLogger
 import logging
 
-from contrastive_metric import ContrastiveLoss, is_duplicate
 from model import ContactEncoder
 from config import *  # noqa: F403
 from data import ContactDataModule, Field, lookup_field
 from model_cli import *  # noqa: F403
 from embedding_logger import TensorBoardEmbeddingLogger
 from utilities import transpose_dict_of_lists, split_field_dict
+from metric import Metric
+from cosine_metric import CosineMetric  # noqa:F401
+from contrastive_metric import ContrastiveMetric  # noqa:F401
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -39,9 +42,7 @@ class PlContactEncoder(pl.LightningModule):
         source_files: Optional[List[str]] = None,
         training_data: Optional[str] = None,
         eval_data: Optional[str] = None,
-        threshold: Optional[float] = None,
         batch_size: Optional[int] = None,
-        margin: Optional[float] = None,
         learning_rate: Optional[float] = None,
         weight_decay: Optional[float] = None,
         num_epochs: Optional[int] = None,
@@ -53,17 +54,7 @@ class PlContactEncoder(pl.LightningModule):
         norm_eps: Optional[float] = None,
         output_mlp_layers: Optional[int] = None,
         output_embedding_dim: Optional[int] = None,
-        loss_function: Optional[
-            Callable[[float], Callable[[torch.Tensor, torch.Tensor, int], torch.Tensor]]
-        ] = None,
-        similarity_function: Optional[
-            Callable[
-                [float],
-                Callable[
-                    [torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]
-                ],
-            ]
-        ] = None,
+        metric: Optional[Metric] = None,
         encoder: Optional[ContactEncoder] = None,
     ):
         super().__init__()
@@ -85,30 +76,13 @@ class PlContactEncoder(pl.LightningModule):
             torch.tensor([-1]),
         )
 
-    def loss_function(
-        self, margin: Optional[float] = None
-    ) -> Callable[[torch.Tensor, torch.Tensor, int], torch.Tensor]:
-        _margin: float = margin or self.hparams.margin  # type: ignore
-        fact = self.hparams.get("loss_function")
-        if fact is None:
-            raise ValueError("Must specify loss function.")
-        return fact(_margin)
-
-    def similarity_function(
-        self, threshold: Optional[float] = None
-    ) -> Callable[[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]:
-        _thresh: float = threshold or self.hparams.threshold  # type: ignore
-        fact = self.hparams.get("similarity_function")
-        if fact is None:
-            raise ValueError("Must specificy similarity function.")
-        return fact(_thresh)
-
     def fields(self) -> List[Field]:
         field_names: List[str] = self.hparams.field_names  # type: ignore
         return [lookup_field(f_name) for f_name in field_names]  # type: ignore
 
     def training_step(self, batch, batch_idx):
-        if not self.loss_function:
+        metric: Optional[Metric] = self.hparams.metric  # type: ignore
+        if not metric:
             raise RuntimeError("Not configured for training!")
 
         (tokens1, lengths1, tokens2, lengths2, labels) = batch
@@ -118,7 +92,7 @@ class PlContactEncoder(pl.LightningModule):
         output2 = self.encoder(tokens2, lengths2)
 
         # Calculate loss
-        loss = self.loss_function()(output1, output2, labels)
+        loss = metric.loss(output1, output2, labels)
 
         self.log(
             "train_loss",
@@ -131,7 +105,8 @@ class PlContactEncoder(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx) -> None:
-        if not self.loss_function or not self.similarity_function:
+        metric: Optional[Metric] = self.hparams.metric  # type: ignore
+        if not metric:
             raise RuntimeError("Not configured for evaluating!")
 
         (tokens1, lengths1, tokens2, lengths2, labels, field_data) = batch
@@ -141,9 +116,9 @@ class PlContactEncoder(pl.LightningModule):
         output2 = self.encoder(tokens2, lengths2)
 
         # Compute the loss
-        loss = self.loss_function()(output1, output2, labels)
+        loss = metric.loss(output1, output2, labels)
 
-        pred_raw, dists = self.similarity_function()(output1, output2)
+        pred_raw, dists = metric.similarity_function(output1, output2)
         pred = convert_bool_tensor(pred_raw)
 
         if isinstance(self.logger, TensorBoardEmbeddingLogger):
@@ -211,29 +186,34 @@ def train(
 
     if checkpoint_path is not None:
         logger.info(f"Loading model from {checkpoint_path}")
-        lightning_model = PlContactEncoder.load_from_checkpoint(
-            checkpoint_path,
-            loss_function=ContrastiveLoss,
-            similarity_function=is_duplicate,
-        )
+        lightning_model = PlContactEncoder.load_from_checkpoint(checkpoint_path)
+        metric = type(lightning_model.hparams.metric)(  # type: ignore
+            margin=lightning_model.hparams.metric.margin,  # type: ignore
+            threshold=args.threshold,
+        )  # type: ignore
         lightning_model.save_hyperparameters(
             {
                 "batch_size": args.batch_size,
                 "training_data": args.training_data,
                 "eval_data": args.eval_data,
-                "threshold": args.threshold,
+                "metric": metric,
                 "version_name": (
                     args.version_name or lightning_model.hparams.version_name  # type: ignore
                 ),
+                "learning_rate": args.learning_rate,
             }
         )
+        print(lightning_model.hparams)
     else:
+        args.metric = globals()[args.metric](
+            margin=args.margin, threshold=args.threshold
+        )
+        delattr(args, "margin")
+        delattr(args, "threshold")
         lightning_model = PlContactEncoder(
             **{
                 **vars(args),
                 "vocab_size": len(data_module.vocabulary),
-                "loss_function": ContrastiveLoss,
-                "similarity_function": is_duplicate,
             }
         )
         lightning_model._save_to_state_dict
@@ -325,6 +305,6 @@ if __name__ == "__main__":
     args.vocab_size = len(data_module.vocabulary)
 
     # margin_experiment(args)
-    embedding_experiment(args, data_module)
+    # embedding_experiment(args, data_module)
 
-    # train(args, data_module)
+    train(args, data_module)

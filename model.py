@@ -241,6 +241,8 @@ class ContactEncoder(nn.Module):
                 activation_layer=lambda: nn.Tanh(),
             ),
             nn.Dropout(p_dropout),
+            # nn.Linear(attn_dim, attn_dim),
+            # nn.Linear(attn_dim, attn_dim),
             nn.Linear(attn_dim, output_embedding_dim),
         )
 
