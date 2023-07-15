@@ -65,7 +65,7 @@ class CosineMetric(Metric):
         return f"CosineMetric(margin={self.margin}, threshold={self.threshold})"
 
     def distance_matches(self, dist: float) -> bool:
-        if dist < -1.0 or dist >= 1.0:
+        if dist < -1.0 or dist > 1.0:
             raise ValueError(f"Invalid cosine distance {dist}")
 
         return dist >= self.threshold
