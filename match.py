@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import List, Tuple
+from typing import Tuple
 import torch
 
 from train import PlContactEncoder
@@ -13,7 +13,6 @@ from data import (
     Field,
     ALL_FIELDS,
 )
-from contrastive_metric import ContrastiveLoss, is_duplicate
 
 if __name__ == "__main__":
     tokenizer, vocabulary = create_char_tokenizer()

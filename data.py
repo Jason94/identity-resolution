@@ -205,6 +205,7 @@ class ContactDataModule(pl.LightningDataModule):
         preserve_text_fields: bool = True,
         p_validation: float = 0.2,
         return_eval_fields: bool = False,
+        return_predict_fields: bool = False,
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -220,6 +221,7 @@ class ContactDataModule(pl.LightningDataModule):
         self.preserve_text_fields = preserve_text_fields
         self.p_validation = p_validation
         self.return_eval_fields = return_eval_fields
+        self.return_predict_fields = return_predict_fields
 
         self._val_dataloader = None
 
@@ -373,7 +375,11 @@ class ContactDataModule(pl.LightningDataModule):
                 os.path.join(self.data_dir, self.val_file),
                 return_field_values=self.return_eval_fields,
             )
-
+        elif stage == "predict":
+            self.predict_dataset = self._read_prepared_data(
+                os.path.join(self.data_dir, self.val_file),
+                return_field_values=self.return_predict_fields,
+            )
         else:
             raise NotImplementedError(f"Have not implemented data stage {stage}")
 
@@ -389,6 +395,9 @@ class ContactDataModule(pl.LightningDataModule):
                 self.val_dataset, batch_size=self.batch_size
             )
         return self._val_dataloader
+
+    def predict_dataloader(self):
+        return DataLoader(self.predict_dataset, batch_size=self.batch_size)
 
     def transfer_batch_to_device(
         self, batch: Any, device: torch.device, dataloader_idx: int

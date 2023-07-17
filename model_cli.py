@@ -45,7 +45,10 @@ def make_model_io_args(parser: Optional[ArgumentParser] = None) -> ArgumentParse
 
 
 def make_data_args(
-    parser: Optional[ArgumentParser] = None, needs_source_file: bool = False
+    parser: Optional[ArgumentParser] = None,
+    needs_source_file: bool = False,
+    needs_training: bool = True,
+    needs_eval: bool = True,
 ) -> ArgumentParser:
     if parser is None:
         parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
@@ -64,18 +67,20 @@ def make_data_args(
             default=["duplicates.csv", "distincts.csv"],
         )
 
-    parser.add_argument(
-        "--training_data",
-        type=str,
-        default="prepared_train_data.csv",
-        help="CSV file in the data directory to use as training data.",
-    )
-    parser.add_argument(
-        "--eval_data",
-        type=str,
-        default="prepared_val_data.csv",
-        help="CSV file in the data directory to use as evaluation data.",
-    )
+    if needs_training:
+        parser.add_argument(
+            "--training_data",
+            type=str,
+            default="prepared_train_data.csv",
+            help="CSV file in the data directory to use as training data.",
+        )
+    if needs_eval:
+        parser.add_argument(
+            "--eval_data",
+            type=str,
+            default="prepared_val_data.csv",
+            help="CSV file in the data directory to use as evaluation data.",
+        )
     return parser
 
 
@@ -241,5 +246,27 @@ def make_classifier_args(parser: Optional[ArgumentParser] = None) -> ArgumentPar
         "--encoder-path",
         type=str,
         help=("Path to an encoder checkpoint to load."),
+    )
+    parser.add_argument(
+        "--pre_pool_mlp_layers",
+        type=int,
+        default=6,
+        help=(
+            "Number of layers in the output MLP (Multilayer Perceptron) before pooling. The MLP is used to"
+            " process the output of the attention mechanism and maps the output to the desired"
+            " number of classes or values. The more layers there are, the more complex"
+            " transformations the model can learn."
+        ),
+    )
+    parser.add_argument(
+        "--pool_mlp_layers",
+        type=int,
+        default=4,
+        help=(
+            "Number of layers in the output MLP (Multilayer Perceptron) after pooling. The MLP is used to"
+            " process the output of the attention mechanism and maps the output to the desired"
+            " number of classes or values. The more layers there are, the more complex"
+            " transformations the model can learn."
+        ),
     )
     return parser

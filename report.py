@@ -13,8 +13,6 @@ from eval import eval_model
 from model_cli import make_evaluation_args
 from contrastive_metric import ContrastiveLoss, is_duplicate
 
-REPORT_FILENAME = "report.html"
-
 
 def embed_matplotlib_figure(fig):
     """Converts a Matplotlib figure to a base64 encoded PNG to be used in HTML reports"""
@@ -30,6 +28,7 @@ def create_html_report(
     all_dists,
     report_df,
     title: str,
+    filename: str = "report.html",
 ):
     report_df["distance"] = all_dists
     report_df["eval_duplicates"] = all_preds
@@ -108,7 +107,8 @@ def create_html_report(
         ]
     )
 
-    with open(REPORT_FILENAME, "w", encoding="utf-8", errors="replace") as f:
+    print(f"Saving report to {filename}.")
+    with open(filename, "w", encoding="utf-8", errors="replace") as f:
         f.write(
             f"""
         <html>

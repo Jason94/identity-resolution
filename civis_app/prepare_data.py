@@ -60,7 +60,7 @@ def save_data() -> Table:
 
 
 def main():
-    save_data().to_dicts()
+    save_data()
 
     pl_data = ContactSingletonDataModule(
         data_dir="",

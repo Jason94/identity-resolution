@@ -30,6 +30,8 @@ class PlContactsClassifier(pl.LightningModule):
         field_names: List[str],
         encoder: ContactEncoder,
         classification_threshold: float,
+        pre_pool_mlp_layers: Optional[int] = None,
+        pool_mlp_layers: Optional[int] = None,
         checkpoint_path: Optional[str] = None,
         training_data: Optional[str] = None,
         eval_data: Optional[str] = None,
@@ -45,12 +47,17 @@ class PlContactsClassifier(pl.LightningModule):
         super().__init__()
 
         # TODO: Find a better way of handling the encoder
-        self.save_hyperparameters(ignore=["classifier"])
+        self.save_hyperparameters(ignore=["classifier", "encoder"])
+        self.encoder = encoder
 
         if classifier:
             self.classifier = classifier
         else:
-            self.classifier = ContactsClassifier.from_encoder(encoder)
+            self.classifier = ContactsClassifier.from_encoder(
+                encoder,
+                pre_pool_mlp_layers=pre_pool_mlp_layers,
+                pool_mlp_layers=pool_mlp_layers,
+            )
 
         self.val_f1 = F1Score(task="binary", threshold=classification_threshold)
         self.val_precision = Precision(
@@ -69,12 +76,13 @@ class PlContactsClassifier(pl.LightningModule):
         return [lookup_field(f_name) for f_name in field_names]  # type: ignore
 
     def on_train_start(self) -> None:
-        encoder: ContactEncoder = self.hparams.encoder  # type: ignore
+        encoder: ContactEncoder = self.encoder  # type: ignore
+        encoder.eval()
         for p in encoder.parameters():
             p.requires_grad = False
 
     def training_step(self, batch, batch_idx):
-        encoder: ContactEncoder = self.hparams.encoder  # type: ignore
+        encoder: ContactEncoder = self.encoder  # type: ignore
         (tokens1, lengths1, tokens2, lengths2, labels) = batch
         labels = labels_to_probs(labels)
 
@@ -98,7 +106,7 @@ class PlContactsClassifier(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        encoder: ContactEncoder = self.hparams.encoder  # type: ignore
+        encoder: ContactEncoder = self.encoder  # type: ignore
         classification_threshold: float = self.hparams.classification_threshold  # type: ignore
         (tokens1, lengths1, tokens2, lengths2, labels, _) = batch
         labels = labels_to_probs(labels)
@@ -125,6 +133,8 @@ class PlContactsClassifier(pl.LightningModule):
             batch_size=self.hparams.batch_size,  # type: ignore
         )
 
+        return preds, classification
+
     def on_validation_epoch_end(self) -> None:
         f1_score = self.val_f1.compute()
         precision = self.val_precision.compute()
@@ -137,6 +147,18 @@ class PlContactsClassifier(pl.LightningModule):
         self.val_f1.reset()
         self.val_precision.reset()
         self.val_recall.reset()
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        encoder: ContactEncoder = self.encoder  # type: ignore
+
+        tokens1, lengths1, tokens2, lengths2, labels, *data = batch
+
+        # Forward pass through the encoder
+        _, attn_out1, _ = encoder.forward(tokens1, lengths1)
+        _, attn_out2, _ = encoder.forward(tokens2, lengths2)
+
+        # Forward pass through the classifier
+        return self.classifier.forward(attn_out1, attn_out2), labels, *data
 
     def configure_optimizers(self) -> Any:
         lr: float = self.hparams.learning_rate  # type: ignore
@@ -152,7 +174,7 @@ class PlContactsClassifier(pl.LightningModule):
         lengths2: List[torch.Tensor],
         _,
     ):
-        encoder: ContactEncoder = self.hparams.encoder  # type: ignore
+        encoder: ContactEncoder = self.encoder  # type: ignore
 
         _, attn_out1, _ = encoder.forward(tokens1, lengths1)
         _, attn_out2, _ = encoder.forward(tokens2, lengths2)
