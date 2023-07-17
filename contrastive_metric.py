@@ -116,3 +116,8 @@ class ContrastiveMetric(Metric):
 
     def __repr__(self):
         return f"ContrastiveMetric(margin={self.margin}, threshold={self.threshold})"
+
+    def distance_matches(self, dist: float) -> bool:
+        if dist < 0.0:
+            raise ValueError(f"Invalid euclidean distance {dist}")
+        return dist <= self.threshold

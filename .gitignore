@@ -167,6 +167,8 @@ data/**/*.ods
 
 # We don't want to check the model data into GitHub
 models/*
+*.pt
+*.ckpt
 
 # Don't commit reports
 *.html
