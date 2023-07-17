@@ -1,10 +1,13 @@
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-from typing import Optional
+from typing import Literal, Optional, Union
 
 from data import ALL_FIELDS
 
 
-def make_universal_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
+def make_universal_args(
+    parser: Optional[ArgumentParser] = None,
+    mode: Union[Literal["encoder"], Literal["classifier"]] = "encoder",
+) -> ArgumentParser:
     if parser is None:
         parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument(
@@ -17,15 +20,16 @@ def make_universal_args(parser: Optional[ArgumentParser] = None) -> ArgumentPars
         ),
         default=[f.field for f in ALL_FIELDS],
     )
-    parser.add_argument(
-        "--metric",
-        help=(
-            "The metric to use to determine distance between two embedding vectors. 'CosineMetric'"
-            " or 'ContrastiveMetric' (euclidean). WARNING: Margin and threshold values differ conceptually"
-            " for different metrics. WARNING: Do NOT mix metrics for pre-trained models!"
-        ),
-        default="ContrastiveMetric",
-    )
+    if mode == "encoder":
+        parser.add_argument(
+            "--metric",
+            help=(
+                "The metric to use to determine distance between two embedding vectors. 'CosineMetric'"
+                " or 'ContrastiveMetric' (euclidean). WARNING: Margin and threshold values differ conceptually"
+                " for different metrics. WARNING: Do NOT mix metrics for pre-trained models!"
+            ),
+            default="ContrastiveMetric",
+        )
     return parser
 
 
@@ -75,19 +79,34 @@ def make_data_args(
     return parser
 
 
-def make_evaluation_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
+def make_evaluation_args(
+    parser: Optional[ArgumentParser] = None,
+    mode: Union[Literal["encoder"], Literal["classifier"]] = "encoder",
+) -> ArgumentParser:
     if parser is None:
         parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=0.5,
-        help=(
-            "Threshold value for the similarity function. Determines the cutoff point"
-            " below which two model outputs are considered similar/duplicates."
-        ),
-    )
+    if mode == "encoder":
+        parser.add_argument(
+            "--threshold",
+            type=float,
+            default=0.5,
+            help=(
+                "Threshold value for the similarity function. Determines the cutoff point"
+                " below which two model outputs are considered similar/duplicates."
+            ),
+        )
+    else:
+        parser.add_argument(
+            "--classification-threshold",
+            type=float,
+            default=0.5,
+            help=(
+                "Determines the cutoff point above which two model outputs are considered"
+                " similar/duplicates. Should be between 0 and 1."
+            ),
+        )
+
     parser.add_argument(
         "--batch_size",
         type=int,
@@ -101,20 +120,24 @@ def make_evaluation_args(parser: Optional[ArgumentParser] = None) -> ArgumentPar
     return parser
 
 
-def make_training_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
+def make_training_args(
+    parser: Optional[ArgumentParser] = None,
+    mode: Union[Literal["encoder"], Literal["classifier"]] = "encoder",
+) -> ArgumentParser:
     if parser is None:
         parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
 
-    parser = make_evaluation_args(parser)
-    parser.add_argument(
-        "--margin",
-        type=float,
-        default=2.0,
-        help=(
-            "Margin value for the loss function. Determines how much to penalize model"
-            " predictions that deviate from the actual labels."
-        ),
-    )
+    parser = make_evaluation_args(parser, mode)
+    if mode == "encoder":
+        parser.add_argument(
+            "--margin",
+            type=float,
+            default=2.0,
+            help=(
+                "Margin value for the loss function. Determines how much to penalize model"
+                " predictions that deviate from the actual labels."
+            ),
+        )
     parser.add_argument("--learning_rate", type=float, default=5e-5)
     parser.add_argument(
         "--weight_decay",
@@ -207,5 +230,16 @@ def make_model_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
             " for each token after it has been processed through all layers of the model. This is"
             " effectively the final size of the representations of each token."
         ),
+    )
+    return parser
+
+
+def make_classifier_args(parser: Optional[ArgumentParser] = None) -> ArgumentParser:
+    if parser is None:
+        parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+    parser.add_argument(
+        "--encoder-path",
+        type=str,
+        help=("Path to an encoder checkpoint to load."),
     )
     return parser

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import List, Tuple
 import torch
 from torch import nn
@@ -127,7 +128,7 @@ class ContactEncoder(nn.Module):
         return field_positional_encoding
 
     @staticmethod
-    def from_namespace(namespace: Namespace):
+    def from_namespace(namespace: Namespace) -> ContactEncoder:
         fields = [lookup_field(name) for name in namespace.field_names]
         return ContactEncoder(
             vocab_size=namespace.vocab_size,
@@ -140,6 +141,18 @@ class ContactEncoder(nn.Module):
             output_mlp_layers=namespace.output_mlp_layers,
             p_dropout=namespace.p_dropout,
         )
+
+    @staticmethod
+    def weighted_attn_sum(
+        attn_output: torch.Tensor, *attn_weights: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        mean_attn_weigths = torch.mean(
+            torch.stack([weights[:, -1, :] for weights in attn_weights]),
+            dim=0,
+        )
+        return (mean_attn_weigths.unsqueeze(-1) * attn_output).sum(
+            dim=1
+        ), mean_attn_weigths
 
     def __init__(
         self,
@@ -156,6 +169,8 @@ class ContactEncoder(nn.Module):
         super(ContactEncoder, self).__init__()
 
         self.fields = fields
+        self.p_dropout = p_dropout
+        self.norm_eps = norm_eps
 
         # --- Embedding layers
         self.embedding_dim = embedding_dim
@@ -271,8 +286,9 @@ class ContactEncoder(nn.Module):
         self,
         token_tensors: List[torch.Tensor],
         length_tensors: List[torch.Tensor],
-        *xargs
-    ):
+        *xargs,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Returns: embedding, attention output, attention weights."""
         # --- Initial Embeddings
 
         # Generate the initial embeddings
@@ -360,20 +376,14 @@ class ContactEncoder(nn.Module):
         # Produce a weighted sum of the character-wise embeddings to represent the input
 
         # We will take the average attention weight for the two attention layers
-        mean_attn_weigths = torch.mean(
-            torch.stack(
-                [f_attn_output_weights[:, -1, :], attn_output_weights[:, -1, :]]
-            ),
-            dim=0,
+        weighted_sum_output, mean_attn_weights = ContactEncoder.weighted_attn_sum(
+            norm_combined_attn_output, f_attn_output_weights, attn_output_weights
         )
-        weighted_sum_output = (
-            mean_attn_weigths.unsqueeze(-1) * norm_combined_attn_output
-        ).sum(dim=1)
 
         # Reshape the internal attented embedding to the output embedding
         output_embeddings = self.fc_output(weighted_sum_output)
 
-        return output_embeddings
+        return output_embeddings, norm_combined_attn_output, mean_attn_weights
 
     def example_tensor(self) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
