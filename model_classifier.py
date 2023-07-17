@@ -2,6 +2,8 @@ from __future__ import annotations
 from typing import List, Optional
 import torch
 import torch.nn as nn
+from torchvision.ops import MLP
+
 
 from data import Field
 from model import ContactEncoder
@@ -25,6 +27,7 @@ class ContactsClassifier(nn.Module):
         fields: List[Field],
         attn_dim=180,
         n_heads_attn=4,
+        output_mlp_layers=8,
         p_dropout=0.0,
         norm_eps=1e-6,
     ):
@@ -63,11 +66,18 @@ class ContactsClassifier(nn.Module):
         self.norm_proc_attn = nn.LayerNorm(attn_dim, eps=norm_eps)
 
         # --- Final Output Processing
+        self.processing = MLP(
+            attn_dim,
+            [attn_dim] * output_mlp_layers,
+            norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
+            activation_layer=lambda: nn.ReLU(),
+        )
+
+        self.pool = nn.AdaptiveAvgPool1d(1)
+
         self.output = nn.Sequential(
-            nn.Linear(attn_dim, attn_dim),
-            nn.Linear(attn_dim, attn_dim),
-            nn.Linear(attn_dim, attn_dim),
-            nn.Linear(attn_dim, 1),
+            nn.Dropout(p_dropout),
+            nn.Linear(2 * field_lengths, 1),
             nn.Sigmoid(),
         )
 
@@ -101,12 +111,8 @@ class ContactsClassifier(nn.Module):
         norm_output = self.norm_proc_attn(output + norm_attn_output)
 
         # --- Output
+        processed = self.processing(norm_output)
 
-        # Produce a weighted sum of the character-wise embeddings to represent the input
+        pooled = self.pool(processed).squeeze()
 
-        # We will take the average attention weight for the two attention layers
-        weighted_sum_output, mean_attn_weights = ContactEncoder.weighted_attn_sum(
-            norm_output, attn_output_weights
-        )
-
-        return self.output(weighted_sum_output).squeeze()
+        return self.output(pooled).squeeze()

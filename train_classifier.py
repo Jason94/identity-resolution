@@ -44,6 +44,7 @@ class PlContactsClassifier(pl.LightningModule):
     ):
         super().__init__()
 
+        # TODO: Find a better way of handling the encoder
         self.save_hyperparameters(ignore=["classifier"])
 
         if classifier:
