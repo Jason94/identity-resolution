@@ -2,8 +2,7 @@ from typing import Any, Optional, List
 import torch
 from torch import optim
 import lightning.pytorch as pl
-from lightning.pytorch.callbacks import ModelSummary
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint, ModelSummary
 from sklearn.metrics import precision_score, recall_score, f1_score
 from argparse import Namespace
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -11,9 +10,9 @@ from lightning.pytorch.loggers.logger import Logger as PlLogger
 import logging
 
 from model import ContactEncoder
-from config import *  # noqa: F403
+from config import *
 from data import ContactDataModule, Field, lookup_field
-from model_cli import *  # noqa: F403
+from model_cli import *
 from embedding_logger import TensorBoardEmbeddingLogger
 from utilities import transpose_dict_of_lists, split_field_dict
 from metric import Metric
@@ -38,7 +37,9 @@ class PlContactEncoder(pl.LightningModule):
         field_names: List[str],
         vocab_size: int,
         checkpoint_path: Optional[str] = None,
+        # TODO: Delete unused hyperparameter prepared_data
         prepared_data: Optional[str] = None,
+        # TODO: Delete unused hyperparameter source_files
         source_files: Optional[List[str]] = None,
         training_data: Optional[str] = None,
         eval_data: Optional[str] = None,
@@ -63,7 +64,7 @@ class PlContactEncoder(pl.LightningModule):
         self.validation_labels = []
         self.validation_preds = []
 
-        self.save_hyperparameters(ignore=["encoder", "example_input"])
+        self.save_hyperparameters(ignore=["encoder"])
 
         if encoder:
             self.encoder = encoder
@@ -88,8 +89,8 @@ class PlContactEncoder(pl.LightningModule):
         (tokens1, lengths1, tokens2, lengths2, labels) = batch
 
         # Forward pass through the model
-        output1 = self.encoder(tokens1, lengths1)
-        output2 = self.encoder(tokens2, lengths2)
+        output1, _, _ = self.encoder.forward(tokens1, lengths1)
+        output2, _, _ = self.encoder.forward(tokens2, lengths2)
 
         # Calculate loss
         loss = metric.loss(output1, output2, labels)
@@ -112,8 +113,8 @@ class PlContactEncoder(pl.LightningModule):
         (tokens1, lengths1, tokens2, lengths2, labels, field_data) = batch
 
         # Forward pass through the model
-        output1 = self.encoder(tokens1, lengths1)
-        output2 = self.encoder(tokens2, lengths2)
+        output1, _, _ = self.encoder.forward(tokens1, lengths1)
+        output2, _, _ = self.encoder.forward(tokens2, lengths2)
 
         # Compute the loss
         loss = metric.loss(output1, output2, labels)
@@ -145,7 +146,8 @@ class PlContactEncoder(pl.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         tensors, lengths, *data = batch
-        return self.encoder(tensors, lengths), *data
+        output, _, _ = self.encoder.forward(tensors, lengths)
+        return output, *data
 
     def on_validation_epoch_end(self) -> None:
         all_labels = torch.cat(self.validation_labels).numpy()
@@ -174,7 +176,8 @@ class PlContactEncoder(pl.LightningModule):
     def forward(
         self, tokens1: List[torch.Tensor], lengths1: List[torch.Tensor], _, __, ___
     ):
-        return self.encoder(tokens1, lengths1)
+        output, _, _ = self.encoder.forward(tokens1, lengths1)
+        return output
 
 
 def train(

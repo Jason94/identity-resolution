@@ -37,6 +37,8 @@ def main():
     )
     args = parser.parse_args()
 
+    print("Loading " + str(args.source_files))
+
     data_module = ContactDataModule(
         data_lists=args.source_files,
         prepared_file=args.prepared_data,
