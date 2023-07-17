@@ -115,6 +115,15 @@ WITH ea_emails AS (
         tmc_ab.in_donations ab
     JOIN indivisible_infrastructure.xwalk x
         ON ab.ordernumber = x.actblue_id
+), xwalks as (
+    select
+        voterbase_id as xwalk_id,
+        LOWER(COALESCE(first_name, '')) AS first_name_field,
+        LOWER(COALESCE(last_name, '')) AS last_name_field,
+        LOWER(COALESCE(email, '')) AS email_field,
+        LOWER(COALESCE(x.state, '')) as state_field,
+        LOWER(COALESCE(phone_number, '')) as raw_phone_field
+    From indivisible_infrastructure.xwalk x
 ), combined_xwalks AS (
     SELECT 
         xwalk_id,
@@ -136,6 +145,9 @@ WITH ea_emails AS (
         UNION ALL
             SELECT *
             FROM ab_xwalks
+        UNION ALL
+            SELECT *
+            FROM xwalks
     )
 )
 SELECT distinct
