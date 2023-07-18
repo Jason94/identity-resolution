@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 from annoy import AnnoyIndex
 import logging
 from uuid import uuid4
@@ -31,10 +31,13 @@ SOURCE_TABLE = os.environ["SOURCE_TABLE"]
 PRIMARY_KEY = os.environ["PRIMARY_KEY"]
 
 THRESHOLD = os.getenv("THRESHOLD")
+CLASSIFIER_THRESHOLD = os.getenv("CLASSIFIER_THRESHOLD")
+N_CLOSEST = int(os.getenv("N_CLOSEST", 2))
 N_TREES = int(os.getenv("N_TREES", 10))
 SEARCH_K = int(os.getenv("SEARCH_K", -1))
 
-OUTPUT_TABLE = os.environ["DUP_OUTPUT_TABLE"]
+DUP_CANDIDATE_TABLE = os.environ["DUP_CANDIDATE_TABLE"]
+DUP_OUTPUT_TABLE = os.environ["DUP_OUTPUT_TABLE"]
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -44,7 +47,9 @@ def load_data(
     pl_model: PlContactEncoder, rs: Redshift
 ) -> Tuple[List[List[float]], Dict[int, int]]:
     embedding_dim: int = pl_model.hparams.output_embedding_dim  # type: ignore
-    raw_data = rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY {PRIMARY_KEY};")
+    raw_data = rs.query(
+        f"SELECT * FROM {SOURCE_TABLE} ORDER BY {PRIMARY_KEY} LIMIT 10000;"
+    )
 
     if raw_data is None:
         raise ConnectionError("Error retrieving data from the database.")
@@ -66,7 +71,7 @@ def load_data(
     return vectors, index_id_map
 
 
-def find_duplicates(vectors, metric: Metric) -> List[Tuple[List[int], int]]:
+def find_duplicates(vectors, metric: Metric) -> Dict[Set[int], float]:
     f = len(vectors[0])
     logger.info(f"Searching under metric {metric.annoy_metric}")
     t = AnnoyIndex(f, metric.annoy_metric)  # type: ignore
@@ -78,34 +83,67 @@ def find_duplicates(vectors, metric: Metric) -> List[Tuple[List[int], int]]:
     t.build(N_TREES)
 
     logger.info("Searching for duplicates")
-    handled_indexes = set()
-    equivalence_classes = []
+    pairs_to_check = set()
+    pairs_with_distance = {}
     for i in range(len(vectors)):
-        if i not in handled_indexes:
-            similar_items = t.get_nns_by_item(
-                i, 2, search_k=SEARCH_K, include_distances=True
-            )
+        nbrs, distances = t.get_nns_by_item(
+            i, N_CLOSEST + 1, search_k=SEARCH_K, include_distances=True
+        )
 
-            closest = similar_items[0][1]
-            dist = similar_items[1][1]
+        # Remove the element from its own neighbors
+        nbrs = nbrs[1:]
+        distances = distances[1:]
 
+        new_pairs = []
+        for nbr, dist in zip(nbrs, distances):
             if metric.annoy_metric == "angular":
                 # Convert Annoy's angular distance to cosine similarity
                 dist = (2 - (dist**2)) / 2
 
-            if metric.distance_matches(dist) and closest not in handled_indexes:
-                pair = [i, closest]
-                handled_indexes = handled_indexes.union(pair)
-                equivalence_classes.append((pair, dist))
+            if metric.distance_matches(dist):
+                pair = frozenset([i, nbr])
+                new_pairs.append(pair)
+                pairs_with_distance[(i, nbr)] = dist
 
-    return equivalence_classes
+        pairs_to_check = pairs_to_check.union(new_pairs)
+
+    return pairs_with_distance
+
+
+def upload_duplicate_candidates(
+    rs: Redshift, candidates: Dict[Set[int], float], index_pkey_map: Dict[int, int]
+):
+    logger.info("Preparing data for upload.")
+    item_classes = []
+    for pair, dist in candidates.items():
+        class_id = uuid4()
+        i = 0
+        for item in pair:
+            item_classes.append(
+                {
+                    PRIMARY_KEY: index_pkey_map[item],
+                    "class": class_id,
+                    "class_index": i,
+                    "metric": dist,
+                }
+            )
+            i += 1
+
+    upload_data = Table(item_classes)
+
+    if upload_data.num_rows > 0:
+        logger.info(f"Found {upload_data.num_rows} duplicates.")
+        logger.info("Uploading data.")
+        rs.copy(upload_data, DUP_CANDIDATE_TABLE, if_exists="drop")
+    else:
+        logger.info("No duplicates identified.")
 
 
 def main():
     init_rs_env()
     rs = Redshift()
 
-    model = get_model()
+    model = get_model(PlContactEncoder)
 
     if THRESHOLD is not None:
         model.hparams.metric.threshold = float(THRESHOLD)  # type: ignore
@@ -116,30 +154,9 @@ def main():
     vectors, index_pkey_map = load_data(model, rs)
 
     logger.info("Identifying duplicates.")
-    duplicates = find_duplicates(vectors, metric)
+    duplicate_candidates = find_duplicates(vectors, metric)
 
-    logger.info("Preparing data for upload.")
-    item_classes = []
-    for equivalence_class, dist in duplicates:
-        if len(equivalence_class) > 1:
-            class_id = uuid4()
-            for item in equivalence_class:
-                item_classes.append(
-                    {
-                        PRIMARY_KEY: index_pkey_map[item],
-                        "class": class_id,
-                        "metric": dist,
-                    }
-                )
-
-    upload_data = Table(item_classes)
-
-    if upload_data.num_rows > 0:
-        logger.info(f"Found {upload_data.num_rows} duplicates.")
-        logger.info("Uploading data.")
-        rs.copy(upload_data, OUTPUT_TABLE, if_exists="drop")
-    else:
-        logger.info("No duplicates identified.")
+    upload_duplicate_candidates(rs, duplicate_candidates, index_pkey_map)
 
 
 if __name__ == "__main__":

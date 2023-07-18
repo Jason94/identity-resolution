@@ -1,12 +1,12 @@
 import os
 import sys
+from typing import Type, TypeVar
 import requests
 import torch
+import lightning.pytorch as pl
 import logging
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from train import PlContactEncoder  # noqa:E402
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -41,7 +41,10 @@ def download_model():
         )
 
 
-def get_model() -> PlContactEncoder:
+M = TypeVar("M", bound=pl.LightningModule)
+
+
+def get_model(model_class: Type[M]) -> M:
     if not os.path.exists(SAVE_PATH):
         logger.info("Loading model.")
         download_model()
@@ -51,7 +54,7 @@ def get_model() -> PlContactEncoder:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Found device {device}")
 
-    model = PlContactEncoder.load_from_checkpoint(SAVE_PATH, map_location=device)
+    model = model_class.load_from_checkpoint(SAVE_PATH, map_location=device)
     logger.info(model.hparams)
 
     return model
