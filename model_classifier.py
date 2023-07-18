@@ -42,7 +42,12 @@ class ContactsClassifier(nn.Module):
         self.p_dropout = p_dropout
 
         # --- Preprocessing
-        self.prerocess_layer = nn.Sequential(nn.Linear(attn_dim, attn_dim))
+        self.prerocess_layer = nn.Sequential(
+            nn.Linear(attn_dim, attn_dim),
+            nn.Linear(attn_dim, attn_dim),
+            nn.LayerNorm(attn_dim, eps=norm_eps),
+            nn.Linear(attn_dim, attn_dim),
+        )
 
         # --- Attention Layer
         self.que_layer = nn.Linear(attn_dim, attn_dim)
