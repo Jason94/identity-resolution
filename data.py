@@ -81,11 +81,19 @@ def lookup_field(name: str) -> Field:
 
 class ContactDataset(Dataset):
     def __init__(
-        self, data: List[dict], fields: List[Field], return_field_values: bool = False
+        self,
+        data: List[dict],
+        fields: List[Field],
+        return_field_values: bool = False,
+        return_record: bool = False,
     ):
+        if return_field_values and return_record:
+            raise ValueError("Cannot return field values and record")
+
         self.data = data
         self.fields = fields
         self.return_field_values = return_field_values
+        self.return_record = return_record
 
     def __len__(self):
         return len(self.data)
@@ -118,6 +126,16 @@ class ContactDataset(Dataset):
                 label,
                 self.get_field_values(idx),
             )
+        elif self.return_record:
+            return (
+                tokens1,
+                lengths1,
+                tokens2,
+                lengths2,
+                label,
+                record,
+            )
+
         else:
             return tokens1, lengths1, tokens2, lengths2, label
 
@@ -206,6 +224,7 @@ class ContactDataModule(pl.LightningDataModule):
         p_validation: float = 0.2,
         return_eval_fields: bool = False,
         return_predict_fields: bool = False,
+        return_predict_record: bool = False,
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -222,6 +241,7 @@ class ContactDataModule(pl.LightningDataModule):
         self.p_validation = p_validation
         self.return_eval_fields = return_eval_fields
         self.return_predict_fields = return_predict_fields
+        self.return_predict_record = return_predict_record
 
         self._val_dataloader = None
 
@@ -379,6 +399,7 @@ class ContactDataModule(pl.LightningDataModule):
             self.predict_dataset = self._read_prepared_data(
                 os.path.join(self.data_dir, self.val_file),
                 return_field_values=self.return_predict_fields,
+                return_record=self.return_predict_record,
             )
         else:
             raise NotImplementedError(f"Have not implemented data stage {stage}")

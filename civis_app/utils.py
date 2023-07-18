@@ -20,18 +20,15 @@ def init_rs_env():
     os.environ["S3_TEMP_BUCKET"] = os.environ["S3_TEMP_BUCKET"]
 
 
-SAVE_PATH = os.path.join(os.path.dirname(__file__), "model.pt")
-
-
-def download_model():
-    model_url = os.environ["MODEL_URL"]
+def download_model(model_url: str, model_filename: str = "model.pt"):
+    model_path = os.path.join(os.path.dirname(__file__), model_filename)
 
     # Send a GET request to download the model
     response = requests.get(model_url, stream=True)
 
     # Check if the request was successful
     if response.status_code == 200:
-        with open(SAVE_PATH, "wb") as file:
+        with open(model_path, "wb") as file:
             for chunk in response.iter_content(chunk_size=1024):
                 file.write(chunk)
         logger.info("Model downloaded successfully!")
@@ -44,17 +41,21 @@ def download_model():
 M = TypeVar("M", bound=pl.LightningModule)
 
 
-def get_model(model_class: Type[M]) -> M:
-    if not os.path.exists(SAVE_PATH):
+def get_model(
+    model_class: Type[M], model_url: str, model_filename: str = "model.pt", **kwargs
+) -> M:
+    model_path = os.path.join(os.path.dirname(__file__), model_filename)
+
+    if not os.path.exists(model_path):
         logger.info("Loading model.")
-        download_model()
+        download_model(model_url, model_filename)
     else:
         logger.info("Found model.")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Found device {device}")
 
-    model = model_class.load_from_checkpoint(SAVE_PATH, map_location=device)
+    model = model_class.load_from_checkpoint(model_path, map_location=device, **kwargs)
     logger.info(model.hparams)
 
     return model

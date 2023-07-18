@@ -83,7 +83,7 @@ def main():
     upload_prepared_data(rs, pl_data)
 
     pl_trainer = pl.Trainer(enable_progress_bar=False)
-    pl_model = get_model(PlContactEncoder)
+    pl_model = get_model(PlContactEncoder, os.environ["MODEL_URL"])
 
     logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(

@@ -4,6 +4,8 @@ from typing import Dict, List, Set, Tuple
 from annoy import AnnoyIndex
 import logging
 from uuid import uuid4
+import torch
+import lightning.pytorch as pl
 
 from parsons import Table
 from parsons.databases.redshift import Redshift
@@ -14,6 +16,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from metric import Metric  # noqa:E402
 from train import PlContactEncoder  # noqa:E402
+from train_classifier import PlContactsClassifier  # noqa:E402
+from data import ContactDataModule
+from utilities import transpose_dict_of_lists
 
 if __name__ == "__main__":
     import importlib.util
@@ -35,6 +40,7 @@ CLASSIFIER_THRESHOLD = os.getenv("CLASSIFIER_THRESHOLD")
 N_CLOSEST = int(os.getenv("N_CLOSEST", 2))
 N_TREES = int(os.getenv("N_TREES", 10))
 SEARCH_K = int(os.getenv("SEARCH_K", -1))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 
 DUP_CANDIDATE_TABLE = os.environ["DUP_CANDIDATE_TABLE"]
 DUP_OUTPUT_TABLE = os.environ["DUP_OUTPUT_TABLE"]
@@ -47,9 +53,7 @@ def load_data(
     pl_model: PlContactEncoder, rs: Redshift
 ) -> Tuple[List[List[float]], Dict[int, int]]:
     embedding_dim: int = pl_model.hparams.output_embedding_dim  # type: ignore
-    raw_data = rs.query(
-        f"SELECT * FROM {SOURCE_TABLE} ORDER BY {PRIMARY_KEY} LIMIT 10000;"
-    )
+    raw_data = rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY {PRIMARY_KEY};")
 
     if raw_data is None:
         raise ConnectionError("Error retrieving data from the database.")
@@ -139,12 +143,7 @@ def upload_duplicate_candidates(
         logger.info("No duplicates identified.")
 
 
-def main():
-    init_rs_env()
-    rs = Redshift()
-
-    model = get_model(PlContactEncoder)
-
+def generate_candidates(rs: Redshift, model: PlContactEncoder):
     if THRESHOLD is not None:
         model.hparams.metric.threshold = float(THRESHOLD)  # type: ignore
 
@@ -157,6 +156,135 @@ def main():
     duplicate_candidates = find_duplicates(vectors, metric)
 
     upload_duplicate_candidates(rs, duplicate_candidates, index_pkey_map)
+
+
+def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
+    classifier_model = get_model(
+        PlContactsClassifier,
+        os.environ["CLASSIFIER_URL"],
+        "classifier.pt",
+        encoder=pl_encoder.encoder,
+    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Found device {device}")
+
+    classifier_model.to(device)
+
+    # TODO: Base this on the fields array in the classifier model
+    data = (
+        rs.query(
+            f"""
+            with a as (
+                select
+                    idr_candidates.{PRIMARY_KEY} as pkey1,
+                    class,
+                    name_tokens as name_tokens1,
+                    name_length as name_length1,
+                    email_tokens as email_tokens1,
+                    email_length as email_length1,
+                    phone_tokens as phone_tokens1,
+                    phone_length as phone_length1,
+                    state_tokens as state_tokens1,
+                    state_length as state_length1
+                from indivisible_test.idr_candidates
+                join indivisible_test.idr_tokens t
+                    on t.user_id = idr_candidates.user_id
+                where class_index = 0
+            ), b as (
+                select
+                    idr_candidates.{PRIMARY_KEY} as pkey2,
+                    class,
+                    name_tokens as name_tokens2,
+                    name_length as name_length2,
+                    email_tokens as email_tokens2,
+                    email_length as email_length2,
+                    phone_tokens as phone_tokens2,
+                    phone_length as phone_length2,
+                    state_tokens as state_tokens2,
+                    state_length as state_length2
+                from indivisible_test.idr_candidates
+                join indivisible_test.idr_tokens t
+                    on t.{PRIMARY_KEY} = idr_candidates.{PRIMARY_KEY}
+                where class_index = 1
+            )
+            select
+                a.pkey1,
+                a.name_tokens1,
+                a.name_length1,
+                a.email_tokens1,
+                a.email_length1,
+                a.phone_tokens1,
+                a.phone_length1,
+                a.state_tokens1,
+                a.state_length1,
+                b.pkey2,
+                b.name_tokens2,
+                b.name_length2,
+                b.email_tokens2,
+                b.email_length2,
+                b.phone_tokens2,
+                b.phone_length2,
+                b.state_tokens2,
+                b.state_length2,
+                1 as label
+            from a
+            join b
+                on a.class = b.class
+            """
+        )
+        or Table()
+    )
+    logger.info(f"Found {data.num_rows} candidate pairs")
+    data_filename = "prepared_data.csv"
+    data.to_csv(data_filename)
+
+    pl_data = ContactDataModule(
+        data_dir="",
+        prepared_file=data_filename,
+        val_file=data_filename,
+        train_file=data_filename,
+        batch_size=BATCH_SIZE,
+        fields=classifier_model.fields(),
+        preserve_text_fields=False,
+        return_predict_record=True,
+    )
+    pl_data.prepare_data()
+    pl_data.setup("predict")
+
+    trainer = pl.Trainer()
+
+    all_evaluated_pairs = []
+    for classification_score, labels, data in trainer.predict(classifier_model, pl_data):  # type: ignore
+        all_evaluated_pairs.extend(
+            transpose_dict_of_lists(
+                {
+                    "pkey1": data["pkey1"],
+                    "pkey2": data["pkey2"],
+                    "classification_score": classification_score,
+                }
+            )
+        )
+
+    classification_threshold = float(
+        CLASSIFIER_THRESHOLD or classifier_model.hparams.classification_threshold  # type: ignore
+    )
+    for pair in all_evaluated_pairs:
+        pair["pkey1"] = pair["pkey1"].item()
+        pair["pkey2"] = pair["pkey2"].item()
+        pair["classification_score"] = pair["classification_score"].item()
+        pair["matches"] = pair["classification_score"] >= classification_threshold
+
+    upload_data = Table(all_evaluated_pairs)
+    rs.copy(upload_data, os.environ["DUP_OUTPUT_TABLE"], if_exists="drop")
+
+
+def main():
+    init_rs_env()
+    rs = Redshift()
+    encoder = get_model(PlContactEncoder, os.environ["MODEL_URL"])
+
+    # generate_candidates(rs, encoder)
+    evaluate_candidates(rs, encoder)
 
 
 if __name__ == "__main__":
