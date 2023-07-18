@@ -73,7 +73,7 @@ def load_data(
 
         i += 1
         if i % 100_000 == 0:
-            logger.info(i)
+            logger.info(f"{i} / {raw_data.num_rows}")
 
     return vectors, index_id_map
 
@@ -114,6 +114,9 @@ def find_duplicates(vectors, metric: Metric) -> Dict[Set[int], float]:
 
         pairs_to_check = pairs_to_check.union(new_pairs)
 
+        if i % 50_000 == 0:
+            logger.info(f"{i} / {len(vectors)}")
+
     return pairs_with_distance
 
 
@@ -139,7 +142,7 @@ def upload_duplicate_candidates(
     upload_data = Table(item_classes)
 
     if upload_data.num_rows > 0:
-        logger.info(f"Found {upload_data.num_rows} duplicates.")
+        logger.info(f"Found {upload_data.num_rows} duplicate candidates.")
         logger.info("Uploading data.")
         rs.copy(upload_data, DUP_CANDIDATE_TABLE, if_exists="drop")
     else:
@@ -237,10 +240,13 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
         )
         or Table()
     )
-    logger.info(f"Found {data.num_rows} candidate pairs")
+    logger.info(f"Found {data.num_rows} candidate pairs.")
+
+    logger.info("Saving candidates data to disk.")
     data_filename = "prepared_data.csv"
     data.to_csv(data_filename)
 
+    logger.info("Assembling data module.")
     pl_data = ContactDataModule(
         data_dir="",
         prepared_file=data_filename,
@@ -256,6 +262,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
 
     trainer = pl.Trainer()
 
+    logger.info("Running classification model. This will take a while!")
     all_evaluated_pairs = []
     for classification_score, labels, data in trainer.predict(classifier_model, pl_data):  # type: ignore
         all_evaluated_pairs.extend(
@@ -268,6 +275,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
             )
         )
 
+    logger.info("Parsing classification results.")
     classification_threshold = float(
         CLASSIFIER_THRESHOLD or classifier_model.hparams.classification_threshold  # type: ignore
     )
@@ -277,6 +285,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
         pair["classification_score"] = pair["classification_score"].item()
         pair["matches"] = pair["classification_score"] >= classification_threshold
 
+    logger.info("Uploading results.")
     upload_data = Table(all_evaluated_pairs)
     rs.copy(upload_data, DUP_OUTPUT_TABLE, if_exists="drop")
 
