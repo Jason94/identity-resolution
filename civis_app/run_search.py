@@ -17,8 +17,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from metric import Metric  # noqa:E402
 from train import PlContactEncoder  # noqa:E402
 from train_classifier import PlContactsClassifier  # noqa:E402
-from data import ContactDataModule
-from utilities import transpose_dict_of_lists
+from data import ContactDataModule  # noqa:E402
+from utilities import transpose_dict_of_lists  # noqa:E402
 
 if __name__ == "__main__":
     import importlib.util
@@ -41,6 +41,9 @@ N_CLOSEST = int(os.getenv("N_CLOSEST", 2))
 N_TREES = int(os.getenv("N_TREES", 10))
 SEARCH_K = int(os.getenv("SEARCH_K", -1))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
+
+ENCODER_URL = os.environ["MODEL_URL"]
+CLASSIFIER_URL = os.environ["CLASSIFIER_URL"]
 
 DUP_CANDIDATE_TABLE = os.environ["DUP_CANDIDATE_TABLE"]
 DUP_OUTPUT_TABLE = os.environ["DUP_OUTPUT_TABLE"]
@@ -161,7 +164,7 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
 def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
     classifier_model = get_model(
         PlContactsClassifier,
-        os.environ["CLASSIFIER_URL"],
+        CLASSIFIER_URL,
         "classifier.pt",
         encoder=pl_encoder.encoder,
     )
@@ -275,15 +278,15 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
         pair["matches"] = pair["classification_score"] >= classification_threshold
 
     upload_data = Table(all_evaluated_pairs)
-    rs.copy(upload_data, os.environ["DUP_OUTPUT_TABLE"], if_exists="drop")
+    rs.copy(upload_data, DUP_OUTPUT_TABLE, if_exists="drop")
 
 
 def main():
     init_rs_env()
     rs = Redshift()
-    encoder = get_model(PlContactEncoder, os.environ["MODEL_URL"])
+    encoder = get_model(PlContactEncoder, ENCODER_URL)
 
-    # generate_candidates(rs, encoder)
+    generate_candidates(rs, encoder)
     evaluate_candidates(rs, encoder)
 
 
