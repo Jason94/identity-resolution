@@ -75,7 +75,8 @@ class PlContactsClassifier(pl.LightningModule):
         field_names: List[str] = self.hparams.field_names  # type: ignore
         return [lookup_field(f_name) for f_name in field_names]  # type: ignore
 
-    def on_train_start(self) -> None:
+    def setup(self, stage: str) -> None:
+        logger.info("Setting encoder to eval mode")
         encoder: ContactEncoder = self.encoder  # type: ignore
         encoder.eval()
         for p in encoder.parameters():
