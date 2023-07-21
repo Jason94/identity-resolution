@@ -12,6 +12,7 @@ from utils import init_rs_env, get_model
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from train import PlContactEncoder  # noqa:E402
 from data import ContactSingletonDataModule  # noqa:E402
 
 if __name__ == "__main__":
@@ -35,14 +36,12 @@ DATA_PATH = "data.csv"
 
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 
+TOKENS_TABLE = os.environ["TOKENS_TABLE"]
 OUTPUT_TABLE = os.environ["OUTPUT_TABLE"]
 LIMIT = 10_000_000
 
 
-def save_data() -> Table:
-    init_rs_env()
-    rs = Redshift()
-
+def save_data(rs: Redshift) -> Table:
     data = rs.query(LOAD_DATA_QUERY) or Table()
 
     if data.num_rows == 0:
@@ -59,8 +58,17 @@ def save_data() -> Table:
     return data
 
 
+def upload_prepared_data(rs: Redshift, pl_data: ContactSingletonDataModule):
+    logger.info("Saving tokens")
+    data = Table.from_csv(pl_data.prepared_file)
+    rs.copy(data, TOKENS_TABLE, if_exists="drop")
+
+
 def main():
-    save_data()
+    init_rs_env()
+    rs = Redshift()
+
+    save_data(rs)
 
     pl_data = ContactSingletonDataModule(
         data_dir="",
@@ -71,8 +79,11 @@ def main():
     )
     logger.info("Preparing data.")
     pl_data.prepare_data(overwrite=True)
+
+    upload_prepared_data(rs, pl_data)
+
     pl_trainer = pl.Trainer(enable_progress_bar=False)
-    pl_model = get_model()
+    pl_model = get_model(PlContactEncoder, os.environ["MODEL_URL"])
 
     logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(
