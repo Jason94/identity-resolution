@@ -237,6 +237,8 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
             from a
             join b
                 on a.class = b.class
+            -- Remove the mirrored copy from the join
+            where pkey1 < pkey2
             """
         )
         or Table()
