@@ -246,7 +246,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
     data_filename = "prepared_data.csv"
     data.to_csv(data_filename)
 
-    logger.info("Assembling data module.")
+    logger.info(f"Assembling data module using batch size {BATCH_SIZE}.")
     pl_data = ContactDataModule(
         data_dir="",
         prepared_file=data_filename,

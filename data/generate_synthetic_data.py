@@ -210,6 +210,22 @@ def generate_synthetic_data(data):
     }
     synthetic_data.append(record11)
 
+    # Rule 11: If first and last name match, but no other info, then it is distinct.
+    record12 = {
+        "first_name1": data["first_name"],
+        "last_name1": data["last_name"],
+        "email1": "",
+        "phone1": "",
+        "state1": "",
+        "first_name2": data["first_name"],
+        "last_name2": data["last_name"],
+        "email2": data["email"],
+        "phone2": data["phone"],
+        "state2": data["state"],
+        "label": -1,
+    }
+    synthetic_data.append(record12)
+
     return synthetic_data
 
 
