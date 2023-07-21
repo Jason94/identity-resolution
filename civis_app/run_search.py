@@ -6,6 +6,7 @@ import logging
 from uuid import uuid4
 import torch
 import lightning.pytorch as pl
+import math
 
 from parsons import Table
 from parsons.databases.redshift import Redshift
@@ -264,6 +265,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
 
     logger.info("Running classification model. This will take a while!")
     all_evaluated_pairs = []
+    steps = math.ceil(len(pl_data.predict_dataset) / BATCH_SIZE)
     for classification_score, labels, data in trainer.predict(classifier_model, pl_data):  # type: ignore
         all_evaluated_pairs.extend(
             transpose_dict_of_lists(
@@ -274,6 +276,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
                 }
             )
         )
+        logger.info(f"{math.floor(len(all_evaluated_pairs) / BATCH_SIZE)} / {steps}")
 
     logger.info("Parsing classification results.")
     classification_threshold = float(
