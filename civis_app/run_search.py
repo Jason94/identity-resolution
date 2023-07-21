@@ -260,7 +260,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
     pl_data.prepare_data()
     pl_data.setup("predict")
 
-    trainer = pl.Trainer()
+    trainer = pl.Trainer(enable_progress_bar=False)
 
     logger.info("Running classification model. This will take a while!")
     all_evaluated_pairs = []
