@@ -9,6 +9,33 @@ from data import Field
 from model import ContactEncoder
 
 
+# This didn't seem to help, but it's a neat idea. Maybe with less MLP layers this would help.
+class AttentionPooling(nn.Module):
+    def __init__(self, attn_dim, seq_length):
+        super(AttentionPooling, self).__init__()
+        self.context_matrix = nn.Parameter(
+            torch.randn(attn_dim, seq_length), requires_grad=True
+        )
+        self.softmax = nn.Softmax(dim=2)
+
+    def forward(self, processed):
+        # Calculate dot product between processed and context matrix
+        # processed shape: (batch_size, seq_length, attn_dim)
+        # context_matrix shape: (attn_dim, seq_length)
+        # dot_product shape: (batch_size, seq_length, seq_length)
+        dot_product = torch.matmul(processed, self.context_matrix)
+
+        # Apply softmax to get attention weights
+        # attn_weights shape: (batch_size, seq_length, seq_length)
+        attn_weights = self.softmax(dot_product)
+
+        # Multiply dot_product by attention weights and sum over attn_dim dimension
+        # pooled shape: (batch_size, seq_length)
+        pooled = torch.sum(attn_weights * dot_product, dim=-1)
+
+        return pooled
+
+
 class ContactsClassifier(nn.Module):
     @staticmethod
     def from_encoder(
@@ -80,18 +107,21 @@ class ContactsClassifier(nn.Module):
             attn_dim,
             [attn_dim] * pre_pool_mlp_layers,
             norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
-            activation_layer=lambda: nn.ReLU(),
+            activation_layer=lambda: nn.Tanh(),
         )
 
         self.pool = nn.AdaptiveAvgPool1d(1)
+        # self.pool = AttentionPooling(attn_dim, 2 * field_lengths)
+        # self.pool = nn.MaxPool1d(1)
+
+        self.post_pool_processing = MLP(
+            2 * field_lengths,
+            [2 * field_lengths] * pool_mlp_layers,
+            norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
+            activation_layer=lambda: nn.Tanh(),
+        )
 
         self.output = nn.Sequential(
-            MLP(
-                2 * field_lengths,
-                [2 * field_lengths] * pool_mlp_layers,
-                norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
-                activation_layer=lambda: nn.ReLU(),
-            ),
             nn.Linear(2 * field_lengths, 2 * field_lengths),
             nn.Linear(2 * field_lengths, 1),
             nn.Sigmoid(),
@@ -129,8 +159,10 @@ class ContactsClassifier(nn.Module):
         norm_output = self.norm_proc_attn(output + norm_attn_output)
 
         # --- Output
-        processed = self.processing(norm_output)
+        processed = self.processing(norm_output) + norm_output
 
         pooled = self.pool(processed).squeeze(-1)
 
-        return self.output(pooled).squeeze(-1)
+        pooled_processed = pooled + self.post_pool_processing(pooled)
+
+        return self.output(pooled_processed).squeeze(-1)
