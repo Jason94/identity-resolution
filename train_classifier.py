@@ -203,9 +203,14 @@ if __name__ == "__main__":
 
     checkpoint_path: Optional[str] = args.checkpoint_path
 
+    encoder = PlContactEncoder.load_from_checkpoint(args.encoder_path).encoder
+    delattr(args, "encoder_path")
+
     if checkpoint_path is not None:
         logger.info(f"Loading model from {checkpoint_path}")
-        lightning_model = PlContactsClassifier.load_from_checkpoint(checkpoint_path)
+        lightning_model = PlContactsClassifier.load_from_checkpoint(
+            checkpoint_path, encoder=encoder
+        )
         lightning_model.save_hyperparameters(
             {
                 "batch_size": args.batch_size,
@@ -217,8 +222,6 @@ if __name__ == "__main__":
         )
         print(lightning_model.hparams)
     else:
-        encoder = PlContactEncoder.load_from_checkpoint(args.encoder_path).encoder
-        delattr(args, "encoder_path")
         lightning_model = PlContactsClassifier(
             **{
                 **vars(args),
