@@ -186,7 +186,6 @@ if __name__ == "__main__":
     logging.basicConfig()
 
     parser = make_universal_args(mode="classifier")
-    make_classifier_args(parser)
     make_model_io_args(parser)
     make_data_args(parser)
     make_training_args(parser, mode="classifier")
