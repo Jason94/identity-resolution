@@ -9,6 +9,33 @@ from data import Field
 from model import ContactEncoder
 
 
+# This didn't seem to help, but it's a neat idea. Maybe with less MLP layers this would help.
+class AttentionPooling(nn.Module):
+    def __init__(self, attn_dim, seq_length):
+        super(AttentionPooling, self).__init__()
+        self.context_matrix = nn.Parameter(
+            torch.randn(attn_dim, seq_length), requires_grad=True
+        )
+        self.softmax = nn.Softmax(dim=2)
+
+    def forward(self, processed):
+        # Calculate dot product between processed and context matrix
+        # processed shape: (batch_size, seq_length, attn_dim)
+        # context_matrix shape: (attn_dim, seq_length)
+        # dot_product shape: (batch_size, seq_length, seq_length)
+        dot_product = torch.matmul(processed, self.context_matrix)
+
+        # Apply softmax to get attention weights
+        # attn_weights shape: (batch_size, seq_length, seq_length)
+        attn_weights = self.softmax(dot_product)
+
+        # Multiply dot_product by attention weights and sum over attn_dim dimension
+        # pooled shape: (batch_size, seq_length)
+        pooled = torch.sum(attn_weights * dot_product, dim=-1)
+
+        return pooled
+
+
 class ContactsClassifier(nn.Module):
     @staticmethod
     def from_encoder(
@@ -33,7 +60,7 @@ class ContactsClassifier(nn.Module):
         p_dropout=0.0,
         norm_eps=1e-6,
     ):
-        super(ContactsClassifier, self).__init__()
+        super().__init__()
 
         # --- Save hyperparameters
         self.fields = fields
@@ -43,7 +70,6 @@ class ContactsClassifier(nn.Module):
 
         # --- Preprocessing
         self.prerocess_layer = nn.Sequential(
-            nn.Linear(attn_dim, attn_dim),
             nn.Linear(attn_dim, attn_dim),
             nn.LayerNorm(attn_dim, eps=norm_eps),
             nn.Linear(attn_dim, attn_dim),
@@ -56,7 +82,7 @@ class ContactsClassifier(nn.Module):
 
         field_lengths = sum([f.max_length for f in fields])
         self.positional_encodings = ContactEncoder.init_positional_encoding(
-            2 * field_lengths, attn_dim
+            field_lengths, attn_dim
         )
 
         self.multihead_attn = nn.MultiheadAttention(
@@ -80,20 +106,23 @@ class ContactsClassifier(nn.Module):
             attn_dim,
             [attn_dim] * pre_pool_mlp_layers,
             norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
-            activation_layer=lambda: nn.ReLU(),
+            activation_layer=lambda: nn.Tanh(),
         )
 
         self.pool = nn.AdaptiveAvgPool1d(1)
+        # self.pool = AttentionPooling(attn_dim, 2 * field_lengths)
+        # self.pool = nn.MaxPool1d(1)
+
+        self.post_pool_processing = MLP(
+            field_lengths,
+            [field_lengths] * pool_mlp_layers,
+            norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
+            activation_layer=lambda: nn.Tanh(),
+        )
 
         self.output = nn.Sequential(
-            MLP(
-                2 * field_lengths,
-                [2 * field_lengths] * pool_mlp_layers,
-                norm_layer=lambda dim: nn.LayerNorm(dim, eps=norm_eps),
-                activation_layer=lambda: nn.ReLU(),
-            ),
-            nn.Linear(2 * field_lengths, 2 * field_lengths),
-            nn.Linear(2 * field_lengths, 1),
+            nn.Linear(field_lengths, field_lengths),
+            nn.Linear(field_lengths, 1),
             nn.Sigmoid(),
         )
 
@@ -101,27 +130,38 @@ class ContactsClassifier(nn.Module):
         self, attn_embedding1: torch.Tensor, attn_embedding2: torch.Tensor
     ) -> torch.Tensor:
         batch_size, _, _ = attn_embedding1.shape
-        embeddings = torch.cat([attn_embedding1, attn_embedding2], dim=1)
 
-        preprocessed_embeddings = self.prerocess_layer(embeddings)
+        preprocessed1 = self.prerocess_layer(attn_embedding1)
+        preprocessed2 = self.prerocess_layer(attn_embedding2)
 
         # --- Attention
         # TODO: Maybe have an attention mask?
         positional_encodings = self.positional_encodings.repeat(batch_size, 1, 1)
 
-        attn_input = preprocessed_embeddings + positional_encodings
+        attn_input1 = preprocessed1 + positional_encodings
+        attn_input2 = preprocessed2 + positional_encodings
 
-        queries = self.que_layer(attn_input)
-        keys = self.key_layer(attn_input)
-        values = self.val_layer(attn_input)
-
-        attn_output, attn_output_weights = self.multihead_attn(
-            queries,
-            keys,
-            values,
+        # Cross-attention from attn_embedding1 to attn_embedding2
+        queries1 = self.que_layer(attn_input1)
+        keys1 = self.key_layer(attn_input2)
+        values1 = self.val_layer(attn_input2)
+        attn_output1, attn_output_weights1 = self.multihead_attn(
+            queries1, keys1, values1
         )
 
-        norm_attn_output = self.norm_attn(attn_output + attn_input)
+        # Cross-attention from attn_embedding2 to attn_embedding1
+        queries2 = self.que_layer(attn_input2)
+        keys2 = self.key_layer(attn_input1)
+        values2 = self.val_layer(attn_input1)
+        attn_output2, attn_output_weights2 = self.multihead_attn(
+            queries2, keys2, values2
+        )
+
+        # Concatenate or otherwise combine the outputs
+        combined_attn_output = torch.max(attn_output1, attn_output2)
+
+        # TODO? Should I do some kind of pooling of the initial embeddings and do a bypass here?
+        norm_attn_output = self.norm_attn(combined_attn_output)
 
         # Process
         output = self.proc_attn(norm_attn_output)
@@ -129,8 +169,10 @@ class ContactsClassifier(nn.Module):
         norm_output = self.norm_proc_attn(output + norm_attn_output)
 
         # --- Output
-        processed = self.processing(norm_output)
+        processed = self.processing(norm_output) + norm_output
 
         pooled = self.pool(processed).squeeze(-1)
 
-        return self.output(pooled).squeeze(-1)
+        pooled_processed = pooled + self.post_pool_processing(pooled)
+
+        return self.output(pooled_processed).squeeze(-1)

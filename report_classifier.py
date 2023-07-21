@@ -14,6 +14,7 @@ from data import ContactDataModule
 from train_classifier import PlContactsClassifier
 from utilities import transpose_dict_of_lists
 from report import create_html_report
+from train import PlContactEncoder
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -63,8 +64,13 @@ def main(checkpoint_path: str, data_path: str, failed: bool, batch_size: int):
         os.path.dirname(checkpoint_path), Path(checkpoint_path).stem + ".html"
     )
 
+    logger.info(f"Loading encoder model from {args.encoder_path}")
+    encoder = PlContactEncoder.load_from_checkpoint(args.encoder_path).encoder
+
     logger.info(f"Loading model from {checkpoint_path}")
-    pl_model = PlContactsClassifier.load_from_checkpoint(checkpoint_path)
+    pl_model = PlContactsClassifier.load_from_checkpoint(
+        checkpoint_path, encoder=encoder
+    )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Found device {device}")
 
@@ -132,7 +138,8 @@ def main(checkpoint_path: str, data_path: str, failed: bool, batch_size: int):
 if __name__ == "__main__":
     logging.basicConfig()
 
-    parser = make_evaluation_args(mode="classifier")
+    parser = make_universal_args(mode="classifier")
+    make_evaluation_args(parser, mode="classifier")
     make_data_args(parser, needs_training=False)
     make_model_io_args(parser)
     parser.add_argument(
