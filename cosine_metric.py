@@ -47,7 +47,11 @@ class CosineMetric(Metric):
     def __init__(self, margin: float, threshold: float):
         super().__init__()
         self.margin = margin
-        self.threshold = threshold
+        self._threshold = threshold
+
+    @property
+    def threshold(self) -> float:
+        return self._threshold
 
     @property
     def loss(self) -> nn.Module:

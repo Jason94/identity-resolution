@@ -28,3 +28,8 @@ class Metric(ABC):
     @abstractmethod
     def distance_matches(self, dist: float) -> bool:
         pass
+
+    @property
+    @abstractmethod
+    def threshold(self) -> float:
+        pass

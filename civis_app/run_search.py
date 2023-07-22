@@ -90,7 +90,9 @@ def find_duplicates(vectors, metric: Metric) -> Dict[Set[int], float]:
     logger.info("Building vector tree")
     t.build(N_TREES)
 
-    logger.info("Searching for duplicates")
+    logger.info(
+        f"Searching for duplicates with neighborhood threshold {metric.threshold:0.4f}"
+    )
     pairs_to_check = set()
     pairs_with_distance = {}
     for i in range(len(vectors)):
