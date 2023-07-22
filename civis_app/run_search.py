@@ -195,7 +195,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
                     state_length as state_length1
                 from indivisible_test.idr_candidates
                 join indivisible_test.idr_tokens t
-                    on t.user_id = idr_candidates.user_id
+                    on t.{PRIMARY_KEY} = idr_candidates.{PRIMARY_KEY}
                 where class_index = 0
             ), b as (
                 select
