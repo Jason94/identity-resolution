@@ -33,3 +33,8 @@ class Metric(ABC):
     @abstractmethod
     def threshold(self) -> float:
         pass
+
+    @threshold.setter
+    @abstractmethod
+    def threshold(self, value: float):
+        pass

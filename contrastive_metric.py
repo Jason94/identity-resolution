@@ -106,6 +106,10 @@ class ContrastiveMetric(Metric):
     def threshold(self) -> float:
         return self._threshold
 
+    @threshold.setter
+    def threshold(self, value: float):
+        self._threshold = value
+
     @property
     def loss(self) -> nn.Module:
         return ContrastiveLoss(self.margin)
