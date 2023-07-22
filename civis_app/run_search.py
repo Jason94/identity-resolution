@@ -93,7 +93,6 @@ def find_duplicates(vectors, metric: Metric) -> Dict[Set[int], float]:
     logger.info(
         f"Searching for duplicates with neighborhood threshold {metric.threshold:0.4f}"
     )
-    pairs_to_check = set()
     pairs_with_distance = {}
     for i in range(len(vectors)):
         nbrs, distances = t.get_nns_by_item(
@@ -104,18 +103,15 @@ def find_duplicates(vectors, metric: Metric) -> Dict[Set[int], float]:
         nbrs = nbrs[1:]
         distances = distances[1:]
 
-        new_pairs = []
         for nbr, dist in zip(nbrs, distances):
             if metric.annoy_metric == "angular":
                 # Convert Annoy's angular distance to cosine similarity
                 dist = (2 - (dist**2)) / 2
 
             if metric.distance_matches(dist):
-                pair = frozenset([i, nbr])
-                new_pairs.append(pair)
-                pairs_with_distance[(i, nbr)] = dist
-
-        pairs_to_check = pairs_to_check.union(new_pairs)
+                pair = [i, nbr]
+                pair.sort()
+                pairs_with_distance[(pair[0], pair[1])] = dist
 
         if i % 50_000 == 0:
             logger.info(f"{i} / {len(vectors)}")
@@ -245,7 +241,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
         )
         or Table()
     )
-    logger.info(f"Found {data.num_rows} candidate pairs.")
+    logger.info(f"Loaded {data.num_rows} candidate pairs.")
 
     logger.info("Saving candidates data to disk.")
     data_filename = "prepared_data.csv"
