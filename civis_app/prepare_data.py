@@ -38,7 +38,7 @@ BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 
 TOKENS_TABLE = os.environ["TOKENS_TABLE"]
 OUTPUT_TABLE = os.environ["OUTPUT_TABLE"]
-LIMIT = 10_000_000
+LIMIT = 2_000_000
 
 
 def save_data(rs: Redshift) -> Table:
@@ -98,12 +98,22 @@ def main():
     result_lists = []
 
     for tensor, record in results:
-        for pkey, embedding in zip(record[PRIMARY_KEY].tolist(), tensor.tolist()):  # type: ignore
-            result_lists.append([pkey, *embedding])  # type: ignore
+        data = zip(
+            record[PRIMARY_KEY].tolist(), record["contact_timestamp"], tensor.tolist()  # type: ignore
+        )
+        for pkey, timestamp, embedding in data:
+            result_lists.append([pkey, timestamp, *embedding])  # type: ignore
 
     embedding_dim = results[0][0].shape[1]
     uploads = Table(
-        [[PRIMARY_KEY, *[str(x) for x in range(0, embedding_dim)]], *result_lists]
+        [
+            [
+                PRIMARY_KEY,
+                "contact_timestamp",
+                *[str(x) for x in range(0, embedding_dim)],
+            ],
+            *result_lists,
+        ]
     )
 
     logger.info("Uploading results.")
