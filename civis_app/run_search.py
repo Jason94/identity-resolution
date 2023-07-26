@@ -6,7 +6,7 @@ import logging
 from uuid import uuid4
 import torch
 import lightning.pytorch as pl
-import math
+from datetime import datetime
 
 from parsons import Table
 from parsons.databases.redshift import Redshift
@@ -286,7 +286,8 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
 
     logger.info("Uploading results.")
     upload_data = Table(all_evaluated_pairs)
-    rs.copy(upload_data, DUP_OUTPUT_TABLE, if_exists="drop")
+    upload_data.add_column("comparison_timestamp", datetime.now())
+    rs.upsert(upload_data, DUP_OUTPUT_TABLE, primary_key=["pkey1", "pkey2"])
 
 
 def main():
