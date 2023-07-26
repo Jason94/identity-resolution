@@ -41,8 +41,28 @@ OUTPUT_TABLE = os.environ["OUTPUT_TABLE"]
 LIMIT = 2_000_000
 
 
+def load_data_conditionally(
+    rs: Redshift, primary_key: str, load_query: str, output_table: str
+) -> str:
+    if rs.table_exists(output_table):
+        temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
+
+        load_query = f"""
+            {temp_table_query}
+
+            SELECT temp.*
+            FROM temp_load_data AS temp
+            LEFT JOIN {output_table} AS output
+            ON temp.{primary_key} = output.{primary_key}
+            WHERE output.{primary_key} IS NULL OR temp.contact_timestamp > output.contact_timestamp;
+        """
+    return load_query
+
+
 def save_data(rs: Redshift) -> Table:
-    data = rs.query(LOAD_DATA_QUERY) or Table()
+    query = LOAD_DATA_QUERY.rstrip(" ;")
+    logger.info(f"Executing: {query}")
+    data = rs.query(query) or Table()
 
     if data.num_rows == 0:
         logger.info("No rows found. Exiting.")

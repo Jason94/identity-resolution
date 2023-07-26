@@ -185,11 +185,17 @@ def train(
     data_module: ContactDataModule,
     lightning_logger: Optional[PlLogger] = None,
 ):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Found device {device}")
+
     checkpoint_path: Optional[str] = args.checkpoint_path
 
     if checkpoint_path is not None:
         logger.info(f"Loading model from {checkpoint_path}")
-        lightning_model = PlContactEncoder.load_from_checkpoint(checkpoint_path)
+        lightning_model = PlContactEncoder.load_from_checkpoint(
+            checkpoint_path, map_location=device
+        )
+        breakpoint()
         metric = type(lightning_model.hparams.metric)(  # type: ignore
             margin=lightning_model.hparams.metric.margin,  # type: ignore
             threshold=args.threshold,
@@ -220,9 +226,6 @@ def train(
             }
         )
         lightning_model._save_to_state_dict
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Found device {device}")
 
     lightning_model.to(device)
 

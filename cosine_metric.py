@@ -53,7 +53,7 @@ class CosineMetric(Metric):
     def threshold(self) -> float:
         # TODO: Remove this. Old versions of the model saved the metric without the _threshold
         #       private attribute. The getattribute can be removed when a new model is trained.
-        return getattr(self, "_threshold", None) or getattr(self, "threshold")
+        return self._threshold
 
     @threshold.setter
     def threshold(self, value: float):
@@ -72,7 +72,8 @@ class CosineMetric(Metric):
         return "angular"
 
     def __repr__(self):
-        return f"CosineMetric(margin={self.margin}, threshold={self.threshold})"
+        return "CosineMetric"
+        # return f"CosineMetric(margin={self.margin}, threshold={self.threshold})"
 
     def distance_matches(self, dist: float) -> bool:
         if dist < -1.0 or dist > 1.0:
