@@ -46,11 +46,12 @@ BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 ENCODER_URL = os.environ["MODEL_URL"]
 CLASSIFIER_URL = os.environ["CLASSIFIER_URL"]
 
+TOKENS_TABLE = os.environ["TOKENS_TABLE"]
 DUP_CANDIDATE_TABLE = os.environ["DUP_CANDIDATE_TABLE"]
 DUP_OUTPUT_TABLE = os.environ["DUP_OUTPUT_TABLE"]
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 def load_data(
@@ -176,13 +177,12 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
     classifier_model.to(device)
 
     # TODO: Base this on the fields array in the classifier model
-    data = (
-        rs.query(
-            f"""
+    query = f"""
             with a as (
                 select
-                    idr_candidates.{PRIMARY_KEY} as pkey1,
+                    idr_candidates.{PRIMARY_KEY} as pkey,
                     class,
+                    contact_timestamp,
                     name_tokens as name_tokens1,
                     name_length as name_length1,
                     email_tokens as email_tokens1,
@@ -191,14 +191,15 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
                     phone_length as phone_length1,
                     state_tokens as state_tokens1,
                     state_length as state_length1
-                from indivisible_test.idr_candidates
-                join indivisible_test.idr_tokens t
+                from {DUP_CANDIDATE_TABLE}
+                join {TOKENS_TABLE} t
                     on t.{PRIMARY_KEY} = idr_candidates.{PRIMARY_KEY}
                 where class_index = 0
             ), b as (
                 select
-                    idr_candidates.{PRIMARY_KEY} as pkey2,
+                    idr_candidates.{PRIMARY_KEY} as pkey,
                     class,
+                    contact_timestamp,
                     name_tokens as name_tokens2,
                     name_length as name_length2,
                     email_tokens as email_tokens2,
@@ -207,13 +208,13 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
                     phone_length as phone_length2,
                     state_tokens as state_tokens2,
                     state_length as state_length2
-                from indivisible_test.idr_candidates
-                join indivisible_test.idr_tokens t
+                from {DUP_CANDIDATE_TABLE}
+                join {TOKENS_TABLE} t
                     on t.{PRIMARY_KEY} = idr_candidates.{PRIMARY_KEY}
                 where class_index = 1
             )
             select
-                a.pkey1,
+                a.pkey as pkey1,
                 a.name_tokens1,
                 a.name_length1,
                 a.email_tokens1,
@@ -222,7 +223,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
                 a.phone_length1,
                 a.state_tokens1,
                 a.state_length1,
-                b.pkey2,
+                b.pkey as pkey2,
                 b.name_tokens2,
                 b.name_length2,
                 b.email_tokens2,
@@ -236,9 +237,18 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
             join b
                 on a.class = b.class
             """
-        )
-        or Table()
-    )
+    if rs.table_exists(DUP_OUTPUT_TABLE):
+        query += f"""
+            left join {DUP_OUTPUT_TABLE} dups
+                on dups.pkey1 = a.pkey
+                and dups.pkey2 = b.pkey
+            where dups.pkey1 is null
+                or dups.comparison_timestamp < a.contact_timestamp
+                or dups.comparison_timestamp < b.contact_timestamp
+        """
+
+    logger.debug(f"Executing query: {query}")
+    data = rs.query(query) or Table()
     logger.info(f"Loaded {data.num_rows} candidate pairs.")
 
     logger.info("Saving candidates data to disk.")
