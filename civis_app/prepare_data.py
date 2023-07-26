@@ -83,7 +83,7 @@ def save_data(rs: Redshift) -> Table:
 def upload_prepared_data(rs: Redshift, pl_data: ContactSingletonDataModule):
     logger.info("Saving tokens")
     data = Table.from_csv(pl_data.prepared_file)
-    rs.copy(data, TOKENS_TABLE, if_exists="drop")
+    rs.upsert(table_obj=data, target_table=TOKENS_TABLE, primary_key=PRIMARY_KEY)
 
 
 def main():
@@ -140,7 +140,7 @@ def main():
 
     logger.info("Uploading results.")
     rs = Redshift()
-    rs.copy(uploads, OUTPUT_TABLE, if_exists="drop")
+    rs.upsert(uploads, OUTPUT_TABLE, primary_key=PRIMARY_KEY)
 
 
 if __name__ == "__main__":
