@@ -249,7 +249,10 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
 
     logger.debug(f"Executing query: {query}")
     data = rs.query(query) or Table()
-    logger.info(f"Loaded {data.num_rows} candidate pairs.")
+    logger.info(f"Loaded {data.num_rows} new candidate pairs.")
+
+    if data.num_rows == 0:
+        logger.info("No new candidate pairs found. Exiting.")
 
     logger.info("Saving candidates data to disk.")
     data_filename = "prepared_data.csv"
