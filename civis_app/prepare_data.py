@@ -62,7 +62,10 @@ def load_data_conditionally(
 def save_data(rs: Redshift) -> Table:
     query = LOAD_DATA_QUERY.rstrip(" ;")
     logger.info(f"Executing: {query}")
-    data = rs.query(query) or Table()
+    data = (
+        rs.query(load_data_conditionally(rs, PRIMARY_KEY, query, OUTPUT_TABLE))
+        or Table()
+    )
 
     if data.num_rows == 0:
         logger.info("No rows found. Exiting.")
