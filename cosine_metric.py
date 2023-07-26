@@ -53,7 +53,7 @@ class CosineMetric(Metric):
     def threshold(self) -> float:
         # TODO: Remove this. Old versions of the model saved the metric without the _threshold
         #       private attribute. The getattribute can be removed when a new model is trained.
-        return self._threshold or self.__getattribute__("threshold")
+        return getattr(self, "_threshold", None) or getattr(self, "threshold")
 
     @threshold.setter
     def threshold(self, value: float):
