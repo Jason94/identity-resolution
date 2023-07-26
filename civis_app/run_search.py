@@ -253,6 +253,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
 
     if data.num_rows == 0:
         logger.info("No new candidate pairs found. Exiting.")
+        sys.exit()
 
     logger.info("Saving candidates data to disk.")
     data_filename = "prepared_data.csv"
