@@ -10,6 +10,7 @@ import csv
 import os
 import logging
 import string
+import sys
 
 
 logger = logging.getLogger(__name__)
@@ -561,6 +562,10 @@ class ContactSingletonDataModule(pl.LightningDataModule):
                 file_data = ContactDataModule._read_data(self.vocabulary, filename)
                 logger.info(f"Found {len(file_data)} valid rows in {list}.csv")
                 data.extend(file_data)
+
+            if len(data) == 0:
+                logger.info("No valid rows found. Exiting.")
+                sys.exit()
 
             df = pd.DataFrame(data, dtype="string")
 
