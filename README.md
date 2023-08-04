@@ -1,6 +1,6 @@
 # Identity Resolution Transformer (IDRT)
 
-IDRT is an open-source library designed to identify duplicate entries within structured contact data. IDRT uses a combination of traditional search algorithms and deep learning to accurately and quickly identify duplicate contact records at scale. Particularly, IDRT uses a _transformer_ neural network, which is a kind of neural network that was discovered by Google in 2017 and powers some of the most complex AI's like Chat GPT.
+IDRT is an open-source library designed to identify duplicate entries within structured contact data. IDRT uses a combination of traditional search algorithms and deep learning to accurately and quickly identify duplicate contact records at scale. Particularly, IDRT uses a _transformer_ neural network, which is a kind of neural network that was discovered at Google in 2017 and powers some of the most complex AI's like Chat GPT.
 
 ## Table of Contents
 
