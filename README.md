@@ -4,9 +4,12 @@ IDRT is an open-source library designed to identify duplicate entries within str
 
 ## Table of Contents
 
+1. [Overview](#overview)
 1. [Background](#background)
    * [Traditional Methods](#traditional-methods)
    * [IDRT's Solution - Deep Learning](#idrts-solution---deep-learning)
+
+## Overview
 
 ## Background
 
@@ -41,4 +44,6 @@ For example, IDRT models have learned patterns like:
 
 All of these patterns were learned by the model during training without any direction from a human. This is the main advantage of deep learning and IDRT: the ability to learn extremely complex relationship between any number of fields of contact data.
 
-The main limitation of deep learning 
+Deep learning is primarily limited by the quantity and quality of available training data. We have had success training models with ~300,000 rows of example data. Training is also generally unviable on CPU hardware; you need access to a GPU (graphics card) to practically train a model. _(With that said, training on GPU hardware scales well. We were able to train a complete IDRT model pair in under three hours on a seven-year-old Nvidia GTX 1080 graphics card, achieving an [f1 score](https://deepai.org/machine-learning-glossary-and-terms/f-score) of 0.9951 on a held-out evaluation dataset. For more information about why neural networks train faster on graphics cards, [check here](https://towardsdatascience.com/why-deep-learning-uses-gpus-c61b399e93a0).)_
+
+The tools in IDRT allow anyone with an existing dataset to train their own IDRT model. However, we recognize that many organizations who need to perform identity resolution do not have access to a large, high-quality dataset of prelabeled contact duplicates. As such, we have desigend IDRT so that it's easy to use a model that you did not train to match your own database of contacts. Our hope is that open-sourced and community-shared models will allow smaller organizations to take advantage of IDRT.
