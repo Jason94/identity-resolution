@@ -1,6 +1,6 @@
 # Identity Resolution Transformer (IDRT)
 
-IDRT is an open-source library designed to identify duplicate entries within structured contact data. IDRT uses a combination of traditional search algorithms and deep learning to accurately and quickly identify duplicate contact records at scale.
+IDRT is an open-source library designed to identify duplicate entries within structured contact data. IDRT uses a combination of traditional search algorithms and deep learning to accurately and quickly identify duplicate contact records at scale. Particularly, IDRT uses a _transformer_ neural network, which is a kind of neural network that was discovered by Google in 2017 and powers some of the most complex AI's like Chat GPT.
 
 ## Table of Contents
 
@@ -10,6 +10,20 @@ IDRT is an open-source library designed to identify duplicate entries within str
    * [IDRT's Solution - Deep Learning](#idrts-solution---deep-learning)
 
 ## Overview
+
+Under the hood, IDRT uses a technique called _machine learning_ to identify patterns and learn to effectively classify duplicate & distinct contacts. Any program that utilizes machine learning is composed of two pieces: the computer code and the _model_, which is a set of numbers that tells the code how to mathematically weight different factors. The relationship between machine-learning software and a model is like the relationship between computer hardware and computer code: without the _model_ the machine-learning _software_ cannot actually do anything. This is similar to how a blank computer, without any code installed, cannot actually do anything.
+
+(_TODO:_ Actually move all of the training code into a sub-package called "studio"...)
+
+IDRT contains two main sub-packages: _IDRT.algorithm_ and _IDRT.studio_. _IDRT.algorithm_ contains a set of runnable scripts that use an IDRT model to perform an efficient duplicate search on a database of contacts. _IDRT.studio_ contains tools that allow you to train your own IDRT model based on existing duplicate/distinct data. Note that you can use an existing model to run the IDRT matching algorithm, without having to train your own!
+
+This readme contains:
+* A general overview of the project
+* Background information about the deep learning technique and why it is suitable for identity resolution
+* A conceptual outline of the matching algorithm contained in _IDRT.algorithm_
+* A description of the structure of the underlying neural network
+
+For more detailed documentation on how to run the matching algorithm, see the [Readme for the IDRT.algorithm sub-package](). For more detailed documentation on how to train your own IDRT model, see the [Readme for the IDRT.studio sub-package]().
 
 ## Background
 
