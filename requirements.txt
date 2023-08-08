@@ -1,0 +1,13 @@
+torch
+torchvision
+torchaudio
+tensorboard
+lightning
+lightning[extra]
+scikit-learn
+matplotlib
+seaborn
+
+## Test
+expects
+mamba
