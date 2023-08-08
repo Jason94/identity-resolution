@@ -8,6 +8,8 @@ IDRT is an open-source library designed to identify duplicate entries within str
 1. [Background](#background)
    * [Traditional Methods](#traditional-methods)
    * [IDRT's Solution - Deep Learning](#idrts-solution---deep-learning)
+1. [How IDRT Works](#how-idrt-works)
+   * [Step 1: Generate vector encodings for each contact](#step-1-generate-vector-encodings-for-each-contact)
 
 ## Overview
 
@@ -61,3 +63,43 @@ All of these patterns were learned by the model during training without any dire
 Deep learning is primarily limited by the quantity and quality of available training data. We have had success training models with ~300,000 rows of example data. Training is also generally unviable on CPU hardware; you need access to a GPU (graphics card) to practically train a model. _(With that said, training on GPU hardware scales well. We were able to train a complete IDRT model pair in under three hours on a seven-year-old Nvidia GTX 1080 graphics card, achieving an [f1 score](https://deepai.org/machine-learning-glossary-and-terms/f-score) of 0.9951 on a held-out evaluation dataset. For more information about why neural networks train faster on graphics cards, [check here](https://towardsdatascience.com/why-deep-learning-uses-gpus-c61b399e93a0).)_
 
 The tools in IDRT allow anyone with an existing dataset to train their own IDRT model. However, we recognize that many organizations who need to perform identity resolution do not have access to a large, high-quality dataset of prelabeled contact duplicates. As such, we have desigend IDRT so that it's easy to use a model that you did not train to match your own database of contacts. Our hope is that open-sourced and community-shared models will allow smaller organizations to take advantage of IDRT.
+
+## How IDRT Works
+
+All of the algorithms mentioned above compare two records directly. When you have a database of thousands or millions of records, you need to be able to efficiently apply a direct comarison to that dataset. Even a simple fuzzy matching algorithm might take a few milliseconds to compare two records. This is not likely to scale well in the naive algorithm of directly comparing each record to every other record. Neural networks are much more expensive to compute than other methods of directly comparing contacts. To efficiently scale to datasets with millions of records, we make use of a hybrid algorithm that uses neural networks and traditional search algorithms.
+
+To facilitate this, IDRT actually uses two separate neural network models: a vector-encoder model and a classifier model. What these models do and how they are used in the identity resolution algorithm is explained below.
+
+### Step 0: Gather the data
+
+Before running IDRT, you should provide a query which will load the contacts from your SQL database. The exact fields (name, email, etc.) that you can provide depend on which fields the model you are using has been trained on. For more details about how to prepare your data for IDRT, see the documentation with the model release you are using.
+
+(_TODO:_ Make sure to include a list of fields with any models that might get released...)
+
+Crucially, your query must also provide an `updated_at` timestamp that represents the last time that contact was updated. This timestamp is not used directly in the duplicate detection algorithm, however it is crucial in the optimizations the algorithm performs to save work between runs.
+
+### Step 1: Generate vector encodings for each contact
+
+The first step of our algorithm is to generate a[vector representation](https://mathinsight.org/vector_introduction) of each contact in our database. This is what the first model, the __vector-encoder__ is trained to do. The vector-encoder model transforms a row of contact data like this:
+
+```
+John Doe, johndoe@email.com, 123-123-1212, AK
+```
+
+into a vector representation like this:
+
+```
+(0.21 1.12 -0.12 4.02 ...)
+```
+
+When every row of your data has been encoded, it is uploaded back into your database. A `contact_timestamp` column with the timestamp that the encoding was calculated is added. The table will look like this:
+
+| pkey | contact_timestamp | x_0  | x_1  | x_2   | x_3  | ... |
+|------|-------------------|------|------|-------|------|-----|
+| 1234 | 2023-08-07 12:34  | 0.21 | 1.12 | -0.12 | 4.02 | ... |
+
+The inclusion of the `contact_timestamp` column is a critical optimization for the algorithm! In subsequent runs of the algorithm, encodings will only be generated for existing contacts _with an `updated_at` timestamp after the `contact_timestmamp` for the existing encoding_. If you don't receive any new or updated contacts between runs of the alogrithm, it can skip Step 1 entirely.
+
+### Step 2: Identify duplicate candidates from the vector encodings
+
+In the field of computer science, a great deal of work has gone into optimizing searches among 
