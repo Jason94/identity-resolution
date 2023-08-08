@@ -100,6 +100,10 @@ When every row of your data has been encoded, it is uploaded back into your data
 
 The inclusion of the `contact_timestamp` column is a critical optimization for the algorithm! In subsequent runs of the algorithm, encodings will only be generated for existing contacts _with an `updated_at` timestamp after the `contact_timestmamp` for the existing encoding_. If you don't receive any new or updated contacts between runs of the alogrithm, it can skip Step 1 entirely.
 
+| ![Example graph with plotted encodings in R3 space.](/repository/assets/encodings1.jpg?raw=true "Example Encodings of Training Data, projected in R3") |
+|:--:|
+| *Encodings of contacts in training data, projected in R3. The highlited dots have the first name "Robert", and are labeled by their state.* |
+
 ### Step 2: Identify duplicate candidates from the vector encodings
 
 In the field of computer science, a great deal of work has gone into optimizing searches among 
