@@ -9,7 +9,10 @@ IDRT is an open-source library designed to identify duplicate entries within str
    * [Traditional Methods](#traditional-methods)
    * [IDRT's Solution - Deep Learning](#idrts-solution---deep-learning)
 1. [How IDRT Works](#how-idrt-works)
+   * [Step 0: Gather the data](#step-0-gather-the-data)
    * [Step 1: Generate vector encodings for each contact](#step-1-generate-vector-encodings-for-each-contact)
+   * [Step 2: Identify duplicate candidates from the vector encodings](#step-2-identify-duplicate-candidates-from-the-vector-encodings)
+   * [Step 3: Classify duplicate candidates](#step-3-classify-duplicate-candidates)
 
 ## Overview
 
@@ -80,7 +83,7 @@ Crucially, your query must also provide an `updated_at` timestamp that represent
 
 ### Step 1: Generate vector encodings for each contact
 
-The first step of our algorithm is to generate a[vector representation](https://mathinsight.org/vector_introduction) of each contact in our database. This is what the first model, the __vector-encoder__ is trained to do. The vector-encoder model transforms a row of contact data like this:
+The first step of the algorithm is to generate a[vector representation](https://mathinsight.org/vector_introduction) of each contact in the database. This is what the first model, the __vector-encoder__ is trained to do. The vector-encoder model transforms a row of contact data like this:
 
 ```
 John Doe, johndoe@email.com, 123-123-1212, AK
@@ -92,7 +95,7 @@ into a vector representation like this:
 (0.21 1.12 -0.12 4.02 ...)
 ```
 
-When every row of your data has been encoded, it is uploaded back into your database. A `contact_timestamp` column with the timestamp that the encoding was calculated is added. The table will look like this:
+When every row of the data has been encoded, it is uploaded back into the database. A `contact_timestamp` column with the timestamp that the encoding was calculated is added. The table will look like this:
 
 | pkey | contact_timestamp | x_0  | x_1  | x_2   | x_3  | ... |
 |------|-------------------|------|------|-------|------|-----|
@@ -106,4 +109,23 @@ The inclusion of the `contact_timestamp` column is a critical optimization for t
 
 ### Step 2: Identify duplicate candidates from the vector encodings
 
-In the field of computer science, a great deal of work has gone into optimizing searches among 
+A great deal of work has gone into algorithms that work with vectors. Traditional CPU hardware is very efficient at performing these algorithms, and it is a much easier task than comparing two contacts with a neural network. We want to use these vectors to identify _duplicate candidates_ that are likely to be duplicate records. Then they can be fed to the next step in the algorithm.
+
+To do this, the algorithm performs a [_nearest neighbor search_](https://en.wikipedia.org/wiki/Nearest_neighbor_search) to find the closest N neighbors to each contact's vector encoding. By default, N=1. This is the fastest option, but could lead to possible duplicates not being considered. IDRT uses the [Annoy](https://github.com/spotify/annoy) library, developed by Spotify, to perform an approximate nearest neighbors search. The Annoy library is incredibly fast, and is capable of finding the nearest neighbor for millions of records in under a minute.
+
+The nearest-neighbor pairs are again uploaded to the database to be used by the next step.
+
+### Step 3: Classify duplicate candidates
+
+In the final step, the candidate-pairs are joined with the original data and are downloaded from the database. For each pair, we feed both candidates' fields (name, etc) separately through the original vector-encoder model. The encoding data for each of the two contacts in a duplicate-candidate pair are fed into the second model: the classifier. This model considers each contact together, and returns a 0-1 probability of being a duplicate, where close to 0 is extremely likely to be distinct and close to 1 is exteremly likely to be a duplicate of the same individual.
+
+These results are then uploaded to a final table. A match column is generated based on a classification score threshold that you can set during the algorithm. This is purely for convenience. You are free to query for records above a certain classification score and treat them as duplicates after the algorithm is run. A `comparison_timestamp` column is also added. This is the timestamp that the two contacts were compared. This allows us to do a crucial optimization for this step of the algorithm. Step 2 considers every contact each time it runs. Therefore it is very likely to return tens, or even hundreds, of thousands of pairs that have already been compared before. When Step 3 runs, it only compares candidates that have already been compared if the `updated_at` timestamp of _either_ contact is greater than the `comparison_timestamp` of the two in the output table. The output table will look like this:
+
+| pkey1 | pkey2 | classification_score | matches | comparison_timestamp     |
+|-------|-------|----------------------|---------|--------------------------|
+| 123   | 456   | 0.85                 | True    | 2023-08-07T12:34:56      |
+| 789   | 101   | 0.60                 | False   | 2023-08-07T14:45:22      |
+| 112   | 313   | 0.72                 | True    | 2023-08-07T18:23:44      |
+
+
+_(Technical Note: The classifier model does not actually use the vector encodings of the contacts. If it did, there would be no need to run the contact data through the encoder again. It actually discards the final vector and uses the __hidden states__ produced by the attention layers inside the encoder model. This __attention__ data contains orders of magnitude more data than the final vector that is produced. This allows the classifier model to use the conceptual features that were extracted from the contacts' fields by the encoder model, allowing it to be trained and run faster.)_
