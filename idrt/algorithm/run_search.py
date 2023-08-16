@@ -33,7 +33,12 @@ if __name__ == "__main__":
             override=True, dotenv_path=os.path.join(os.path.dirname(__file__), ".env")
         )
 
-SOURCE_TABLE = os.environ["SOURCE_TABLE"]
+SCHEMA = os.environ["OUTPUT_SCHEMA"]
+SOURCE_TABLE = SCHEMA + ".idr_out"
+TOKENS_TABLE = SCHEMA + ".idr_tokens"
+DUP_CANDIDATE_TABLE = SCHEMA + ".idr_candidates"
+DUP_OUTPUT_TABLE = SCHEMA + ".idr_dups"
+
 PRIMARY_KEY = os.environ["PRIMARY_KEY"]
 
 THRESHOLD = os.getenv("THRESHOLD")
@@ -45,10 +50,6 @@ BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 
 ENCODER_URL = os.environ["MODEL_URL"]
 CLASSIFIER_URL = os.environ["CLASSIFIER_URL"]
-
-TOKENS_TABLE = os.environ["TOKENS_TABLE"]
-DUP_CANDIDATE_TABLE = os.environ["DUP_CANDIDATE_TABLE"]
-DUP_OUTPUT_TABLE = os.environ["DUP_OUTPUT_TABLE"]
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -277,7 +278,9 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
 
     logger.info("Running classification model. This will take a while!")
     all_evaluated_pairs = []
-    for classification_score, labels, data in trainer.predict(classifier_model, pl_data):  # type: ignore
+    for classification_score, labels, data in trainer.predict(  # type: ignore
+        classifier_model, pl_data
+    ):
         all_evaluated_pairs.extend(
             transpose_dict_of_lists(
                 {

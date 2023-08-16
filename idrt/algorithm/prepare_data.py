@@ -36,8 +36,9 @@ DATA_PATH = "data.csv"
 
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 
-TOKENS_TABLE = os.environ["TOKENS_TABLE"]
-OUTPUT_TABLE = os.environ["OUTPUT_TABLE"]
+SCHEMA = os.environ["OUTPUT_SCHEMA"]
+TOKENS_TABLE = SCHEMA + ".idr_tokens"
+OUTPUT_TABLE = SCHEMA + ".idr_out"
 LIMIT = 2_000_000
 
 
@@ -121,7 +122,9 @@ def main():
 
     for tensor, record in results:
         data = zip(
-            record[PRIMARY_KEY].tolist(), record["contact_timestamp"], tensor.tolist()  # type: ignore
+            record[PRIMARY_KEY].tolist(),  # type: ignore
+            record["contact_timestamp"],  # type: ignore
+            tensor.tolist(),
         )
         for pkey, timestamp, embedding in data:
             result_lists.append([pkey, timestamp, *embedding])  # type: ignore
