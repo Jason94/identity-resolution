@@ -51,7 +51,14 @@ def load_data_conditionally(
         load_query = f"""
             {temp_table_query}
 
-            SELECT temp.*
+            SELECT
+                temp.{PRIMARY_KEY},
+                temp.contact_timestamp,
+                LOWER(COALESCE(temp.first_name, '')) AS first_name,
+                LOWER(COALESCE(temp.last_name, '')) AS last_name,
+                LOWER(COALESCE(temp.email, '')) AS email,
+                LOWER(COALESCE(temp.state, '')) as state,
+                RIGHT(REGEXP_REPLACE(LOWER(COALESCE(temp.phone, '')), '[^0-9]', ''), 10) as phone
             FROM temp_load_data AS temp
             LEFT JOIN {output_table} AS output
             ON temp.{primary_key} = output.{primary_key}
