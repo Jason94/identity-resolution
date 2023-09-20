@@ -169,6 +169,7 @@ def main():
             [
                 PRIMARY_KEY,
                 "contact_timestamp",
+                "pool",
                 *[str(x) for x in range(0, embedding_dim)],
             ],
             *result_lists,
