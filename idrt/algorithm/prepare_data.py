@@ -176,6 +176,7 @@ def main():
     )
 
     logger.info("Uploading results.")
+    logger.debug(uploads)
     rs = Redshift()
     rs.upsert(uploads, OUTPUT_TABLE, primary_key=PRIMARY_KEY)
 
