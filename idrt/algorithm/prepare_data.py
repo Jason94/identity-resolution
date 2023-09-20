@@ -43,6 +43,7 @@ LIMIT = 2_000_000
 
 def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) -> str:
     if rs.table_exists(output_table):
+        logger.info("Output table detected.")
         temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
 
         complete_query = f"""
@@ -63,6 +64,7 @@ def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) ->
             WHERE output.primary_key IS NULL OR temp.contact_timestamp > output.contact_timestamp;
         """
     else:
+        logger.info("Output table does not exist.")
         temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
 
         complete_query = f"""
