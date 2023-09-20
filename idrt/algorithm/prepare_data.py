@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 LOAD_DATA_QUERY = os.environ["LOAD_DATA_QUERY"]
 PRIMARY_KEY = os.environ["PRIMARY_KEY"]
