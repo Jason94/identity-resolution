@@ -59,10 +59,7 @@ def load_data_conditionally(
                 LOWER(COALESCE(temp.email, '')) AS email,
                 LOWER(COALESCE(temp.state, '')) as state,
                 RIGHT(REGEXP_REPLACE(LOWER(COALESCE(temp.phone, '')), '[^0-9]', ''), 10) as phone,
-                (SELECT pool
-                 FROM temp_load_data
-                 WHERE temp_load_data.{primary_key} = temp.{primary_key}
-                ) as pool
+                temp.pool
             FROM temp_load_data AS temp
             LEFT JOIN {output_table} AS output
             ON temp.{primary_key} = output.{primary_key}
@@ -82,10 +79,7 @@ def load_data_conditionally(
                 LOWER(COALESCE(temp.email, '')) AS email,
                 LOWER(COALESCE(temp.state, '')) as state,
                 RIGHT(REGEXP_REPLACE(LOWER(COALESCE(temp.phone, '')), '[^0-9]', ''), 10) as phone,
-                (SELECT pool
-                 FROM temp_load_data
-                 WHERE temp_load_data.{primary_key} = temp.{primary_key}
-                ) as pool
+                temp.pool
             FROM temp_load_data AS temp;
         """
     return complete_query
