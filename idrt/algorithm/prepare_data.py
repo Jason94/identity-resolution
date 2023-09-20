@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 LOAD_DATA_QUERY = os.environ["LOAD_DATA_QUERY"]
 PRIMARY_KEY = os.environ["PRIMARY_KEY"]
@@ -87,6 +87,9 @@ def save_data(rs: Redshift) -> Table:
 
     logger.info(f"Found {data.num_rows} rows.")
 
+    logger.debug("Queried data:")
+    logger.debug(data)
+
     data.to_csv(DATA_PATH, encoding="utf8")
 
     return data
@@ -95,6 +98,8 @@ def save_data(rs: Redshift) -> Table:
 def upload_prepared_data(rs: Redshift, pl_data: ContactSingletonDataModule):
     logger.info("Saving tokens")
     data = Table.from_csv(pl_data.prepared_file)
+    logger.debug("Saved prepared data:")
+    logger.debug(data)
     rs.upsert(table_obj=data, target_table=TOKENS_TABLE, primary_key=PRIMARY_KEY)
 
 
@@ -130,6 +135,9 @@ def main():
 
     logger.info("Preparing results for upload.")
     result_lists = []
+
+    logger.debug("Results example:")
+    logger.debug(results[0])
 
     for tensor, record in results:
         data = zip(
