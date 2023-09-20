@@ -52,13 +52,17 @@ def load_data_conditionally(
             {temp_table_query}
 
             SELECT
-                temp.{PRIMARY_KEY},
+                temp.{primary_key},
                 temp.contact_timestamp,
                 LOWER(COALESCE(temp.first_name, '')) AS first_name,
                 LOWER(COALESCE(temp.last_name, '')) AS last_name,
                 LOWER(COALESCE(temp.email, '')) AS email,
                 LOWER(COALESCE(temp.state, '')) as state,
-                RIGHT(REGEXP_REPLACE(LOWER(COALESCE(temp.phone, '')), '[^0-9]', ''), 10) as phone
+                RIGHT(REGEXP_REPLACE(LOWER(COALESCE(temp.phone, '')), '[^0-9]', ''), 10) as phone,
+                (SELECT pool
+                 FROM temp_load_data
+                 WHERE temp_load_data.{primary_key} = temp.{primary_key}
+                ) as pool
             FROM temp_load_data AS temp
             LEFT JOIN {output_table} AS output
             ON temp.{primary_key} = output.{primary_key}
@@ -131,10 +135,11 @@ def main():
         data = zip(
             record[PRIMARY_KEY].tolist(),  # type: ignore
             record["contact_timestamp"],  # type: ignore
+            record["pool"],  # type: ignore
             tensor.tolist(),
         )
-        for pkey, timestamp, embedding in data:
-            result_lists.append([pkey, timestamp, *embedding])  # type: ignore
+        for pkey, timestamp, pool, embedding in data:
+            result_lists.append([pkey, timestamp, pool, *embedding])  # type: ignore
 
     embedding_dim = results[0][0].shape[1]
     uploads = Table(
