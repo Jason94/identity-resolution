@@ -48,7 +48,7 @@ def load_data_conditionally(
     if rs.table_exists(output_table):
         temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
 
-        load_query = f"""
+        complete_query = f"""
             {temp_table_query}
 
             SELECT
@@ -68,7 +68,27 @@ def load_data_conditionally(
             ON temp.{primary_key} = output.{primary_key}
             WHERE output.{primary_key} IS NULL OR temp.contact_timestamp > output.contact_timestamp;
         """
-    return load_query
+    else:
+        temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
+
+        complete_query = f"""
+            {temp_table_query}
+
+            SELECT
+                temp.{primary_key},
+                temp.contact_timestamp,
+                LOWER(COALESCE(temp.first_name, '')) AS first_name,
+                LOWER(COALESCE(temp.last_name, '')) AS last_name,
+                LOWER(COALESCE(temp.email, '')) AS email,
+                LOWER(COALESCE(temp.state, '')) as state,
+                RIGHT(REGEXP_REPLACE(LOWER(COALESCE(temp.phone, '')), '[^0-9]', ''), 10) as phone,
+                (SELECT pool
+                 FROM temp_load_data
+                 WHERE temp_load_data.{primary_key} = temp.{primary_key}
+                ) as pool
+            FROM temp_load_data AS temp;
+        """
+    return complete_query
 
 
 def save_data(rs: Redshift) -> Table:
