@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 LOAD_DATA_QUERY = os.environ["LOAD_DATA_QUERY"]
-PRIMARY_KEY = os.environ["PRIMARY_KEY"]
 
 DATA_PATH = "data.csv"
 
@@ -42,9 +41,7 @@ OUTPUT_TABLE = SCHEMA + ".idr_out"
 LIMIT = 2_000_000
 
 
-def load_data_conditionally(
-    rs: Redshift, primary_key: str, load_query: str, output_table: str
-) -> str:
+def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) -> str:
     if rs.table_exists(output_table):
         temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
 
@@ -52,7 +49,7 @@ def load_data_conditionally(
             {temp_table_query}
 
             SELECT
-                temp.{primary_key},
+                temp.primary_key,
                 temp.contact_timestamp,
                 LOWER(COALESCE(temp.first_name, '')) AS first_name,
                 LOWER(COALESCE(temp.last_name, '')) AS last_name,
@@ -62,8 +59,8 @@ def load_data_conditionally(
                 temp.pool
             FROM temp_load_data AS temp
             LEFT JOIN {output_table} AS output
-            ON temp.{primary_key} = output.{primary_key}
-            WHERE output.{primary_key} IS NULL OR temp.contact_timestamp > output.contact_timestamp;
+            ON temp.primary_key = output.primary_key
+            WHERE output.primary_key IS NULL OR temp.contact_timestamp > output.contact_timestamp;
         """
     else:
         temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
@@ -72,7 +69,7 @@ def load_data_conditionally(
             {temp_table_query}
 
             SELECT
-                temp.{primary_key},
+                temp.primary_key,
                 temp.contact_timestamp,
                 LOWER(COALESCE(temp.first_name, '')) AS first_name,
                 LOWER(COALESCE(temp.last_name, '')) AS last_name,
@@ -86,9 +83,7 @@ def load_data_conditionally(
 
 
 def save_data(rs: Redshift) -> Table:
-    query = load_data_conditionally(
-        rs, PRIMARY_KEY, LOAD_DATA_QUERY.rstrip(" ;"), OUTPUT_TABLE
-    )
+    query = load_data_conditionally(rs, LOAD_DATA_QUERY.rstrip(" ;"), OUTPUT_TABLE)
     logger.info(f"Executing: {query}")
     data = rs.query(query) or Table()
 
@@ -114,7 +109,7 @@ def upload_prepared_data(rs: Redshift, pl_data: ContactSingletonDataModule):
     data = Table.from_csv(pl_data.prepared_file)
     logger.debug("Saved prepared data:")
     logger.debug(data)
-    rs.upsert(table_obj=data, target_table=TOKENS_TABLE, primary_key=PRIMARY_KEY)
+    rs.upsert(table_obj=data, target_table=TOKENS_TABLE, primary_key="primary_key")
 
 
 def main():
@@ -155,7 +150,7 @@ def main():
 
     for tensor, record in results:
         data = zip(
-            record[PRIMARY_KEY].tolist(),  # type: ignore
+            record["primary_key"].tolist(),  # type: ignore
             record["contact_timestamp"],  # type: ignore
             record["pool"],  # type: ignore
             tensor.tolist(),
@@ -167,7 +162,7 @@ def main():
     uploads = Table(
         [
             [
-                PRIMARY_KEY,
+                "primary_key",
                 "contact_timestamp",
                 "pool",
                 *[str(x) for x in range(0, embedding_dim)],
@@ -179,7 +174,7 @@ def main():
     logger.info("Uploading results.")
     logger.debug(uploads)
     rs = Redshift()
-    rs.upsert(uploads, OUTPUT_TABLE, primary_key=PRIMARY_KEY)
+    rs.upsert(uploads, OUTPUT_TABLE, primary_key="primary_key")
 
 
 if __name__ == "__main__":

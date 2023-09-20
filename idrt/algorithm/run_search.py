@@ -39,14 +39,15 @@ TOKENS_TABLE = SCHEMA + ".idr_tokens"
 DUP_CANDIDATE_TABLE = SCHEMA + ".idr_candidates"
 DUP_OUTPUT_TABLE = SCHEMA + ".idr_dups"
 
-PRIMARY_KEY = os.environ["PRIMARY_KEY"]
-
 THRESHOLD = os.getenv("THRESHOLD")
 CLASSIFIER_THRESHOLD = os.getenv("CLASSIFIER_THRESHOLD")
 N_CLOSEST = int(os.getenv("N_CLOSEST", 2))
 N_TREES = int(os.getenv("N_TREES", 10))
 SEARCH_K = int(os.getenv("SEARCH_K", -1))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
+
+SEARCH_POOL = os.getenv("SEARCH_POOL")
+SOURCE_POOL = os.getenv("SOURCE_POOL")
 
 ENCODER_URL = os.environ["MODEL_URL"]
 CLASSIFIER_URL = os.environ["CLASSIFIER_URL"]
@@ -59,7 +60,7 @@ def load_data(
     pl_model: PlContactEncoder, rs: Redshift
 ) -> Tuple[List[List[float]], Dict[int, int]]:
     embedding_dim: int = pl_model.hparams.output_embedding_dim  # type: ignore
-    raw_data = rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY {PRIMARY_KEY};")
+    raw_data = rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY primary_key;")
 
     if raw_data is None:
         raise ConnectionError("Error retrieving data from the database.")
@@ -71,7 +72,7 @@ def load_data(
     i = 0
 
     for row in raw_data:
-        index_id_map[i] = row[PRIMARY_KEY]
+        index_id_map[i] = row["primary_key"]
         vectors.append([row[f"x_{n}"] for n in range(0, embedding_dim)])
 
         i += 1
@@ -132,7 +133,7 @@ def upload_duplicate_candidates(
         for item in pair:
             item_classes.append(
                 {
-                    PRIMARY_KEY: index_pkey_map[item],
+                    "primary_key": index_pkey_map[item],
                     "class": class_id,
                     "class_index": i,
                     "metric": dist,
@@ -181,7 +182,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
     query = f"""
             with a as (
                 select
-                    idr_candidates.{PRIMARY_KEY} as pkey,
+                    idr_candidates.primary_key as pkey,
                     class,
                     contact_timestamp,
                     name_tokens as name_tokens1,
@@ -194,11 +195,11 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
                     state_length as state_length1
                 from {DUP_CANDIDATE_TABLE}
                 join {TOKENS_TABLE} t
-                    on t.{PRIMARY_KEY} = idr_candidates.{PRIMARY_KEY}
+                    on t.primary_key = idr_candidates.primary_key
                 where class_index = 0
             ), b as (
                 select
-                    idr_candidates.{PRIMARY_KEY} as pkey,
+                    idr_candidates.primary_key as pkey,
                     class,
                     contact_timestamp,
                     name_tokens as name_tokens2,
@@ -211,7 +212,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
                     state_length as state_length2
                 from {DUP_CANDIDATE_TABLE}
                 join {TOKENS_TABLE} t
-                    on t.{PRIMARY_KEY} = idr_candidates.{PRIMARY_KEY}
+                    on t.primary_key = idr_candidates.primary_key
                 where class_index = 1
             )
             select
