@@ -1,12 +1,13 @@
 import os
 import sys
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from annoy import AnnoyIndex
 import logging
 from uuid import uuid4
 import torch
 import lightning.pytorch as pl
 from datetime import datetime
+from enum import Enum
 
 from parsons import Table
 from parsons.databases.redshift import Redshift
@@ -55,18 +56,33 @@ CLASSIFIER_URL = os.environ["CLASSIFIER_URL"]
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+Mode = Enum("Mode", ["Pooled", "Unpooled"])
 
-def load_data(
-    pl_model: PlContactEncoder, rs: Redshift
+EXECUTION_MODE: Mode = Mode.Pooled if SEARCH_POOL and SOURCE_POOL else Mode.Unpooled
+
+
+def load_raw_unpooled_data(rs: Redshift) -> Table:
+    return rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY primary_key;") or Table()
+
+
+def load_raw_pooled_data(rs: Redshift, pool: str) -> Table:
+    return (
+        rs.query(
+            f"""
+            SELECT *
+            FROM {SOURCE_TABLE}
+            WHERE pool = %s
+            ORDER BY primary_key;
+            """,
+            [pool],
+        )
+        or Table()
+    )
+
+
+def shape_raw_data(
+    raw_data: Table, embedding_dim: int
 ) -> Tuple[List[List[float]], Dict[int, int]]:
-    embedding_dim: int = pl_model.hparams.output_embedding_dim  # type: ignore
-    raw_data = rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY primary_key;")
-
-    if raw_data is None:
-        raise ConnectionError("Error retrieving data from the database.")
-
-    logger.info(f"Found {raw_data.num_rows} rows to parse. Reshaping data.")
-
     vectors = []
     index_id_map = {}
     i = 0
@@ -82,13 +98,46 @@ def load_data(
     return vectors, index_id_map
 
 
-def find_duplicates(vectors, metric: Metric) -> Dict[Set[int], float]:
-    f = len(vectors[0])
+def load_data(
+    embedding_dim: int,
+    rs: Redshift,
+    pool: Optional[str] = None,
+) -> Tuple[List[List[float]], Dict[int, int]]:
+    if pool is not None:
+        raw_data = load_raw_pooled_data(rs, pool)
+    else:
+        raw_data = load_raw_unpooled_data(rs)
+
+    if raw_data is None:
+        raise ConnectionError("Error retrieving data from the database.")
+
+    logger.info(f"Found {raw_data.num_rows} rows to parse. Reshaping data.")
+
+    return shape_raw_data(raw_data, embedding_dim)
+
+
+def find_duplicates(
+    search_vectors: List[List[float]],
+    source_vectors: List[List[float]],
+    metric: Metric,
+    mode: Mode,
+) -> Dict[Tuple[int, int], float]:
+    """Find duplicate candidates
+
+    Args:
+        search_vectors: Vectors to search through.
+        source_vectors: Vectors to try to match.
+        metric
+
+    Returns:
+        Dict[(source_vector_index:int, search_vector_index:int), distance:float]
+    """
+    f = len(search_vectors[0])
     logger.info(f"Searching under metric {metric.annoy_metric}")
     t = AnnoyIndex(f, metric.annoy_metric)  # type: ignore
 
-    for i in range(len(vectors)):
-        t.add_item(i, vectors[i])
+    for i in range(len(search_vectors)):
+        t.add_item(i, search_vectors[i])
 
     logger.info("Building vector tree")
     t.build(N_TREES)
@@ -97,14 +146,18 @@ def find_duplicates(vectors, metric: Metric) -> Dict[Set[int], float]:
         f"Searching for duplicates with neighborhood threshold {metric.threshold:0.4f}"
     )
     pairs_with_distance = {}
-    for i in range(len(vectors)):
-        nbrs, distances = t.get_nns_by_item(
-            i, N_CLOSEST + 1, search_k=SEARCH_K, include_distances=True
+    for i in range(len(source_vectors)):
+        source_vector = source_vectors[i]
+
+        nbrs, distances = t.get_nns_by_vector(
+            source_vector, N_CLOSEST + 1, search_k=SEARCH_K, include_distances=True
         )
 
-        # Remove the element from its own neighbors
-        nbrs = nbrs[1:]
-        distances = distances[1:]
+        if mode == Mode.Unpooled:
+            # If we are in unpooled mode, then the search vector is in the source pool.
+            # Remove the element from its own neighbors
+            nbrs = nbrs[1:]
+            distances = distances[1:]
 
         for nbr, dist in zip(nbrs, distances):
             if metric.annoy_metric == "angular":
@@ -112,18 +165,28 @@ def find_duplicates(vectors, metric: Metric) -> Dict[Set[int], float]:
                 dist = (2 - (dist**2)) / 2
 
             if metric.distance_matches(dist):
-                pair = [i, nbr]
-                pair.sort()
-                pairs_with_distance[(pair[0], pair[1])] = dist
+                if mode == Mode.Unpooled:
+                    pair = [i, nbr]
+                    # If we are in unpooled mode, then the match will get reciprocated when we come
+                    # to searching for nbr's duplicates. Sort so that we don't store them twice.
+                    pair.sort()
+                    pairs_with_distance[(pair[0], pair[1])] = dist
+                else:
+                    # If we are in pooled mode, then the source vector is not in the search pool
+                    # and it's important to keep the source index in the first slot and the search
+                    # index in the second slot!
+                    pairs_with_distance[(i, nbr)] = dist
 
         if i % 50_000 == 0:
-            logger.info(f"{i} / {len(vectors)}")
+            logger.info(f"{i} / {len(source_vectors)}")
 
     return pairs_with_distance
 
 
 def upload_duplicate_candidates(
-    rs: Redshift, candidates: Dict[Set[int], float], index_pkey_map: Dict[int, int]
+    rs: Redshift,
+    candidates: Dict[Tuple[int, int], float],
+    index_pkey_map: Dict[int, int],
 ):
     logger.info("Preparing data for upload.")
     item_classes = []
@@ -156,12 +219,37 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
         model.hparams.metric.threshold = float(THRESHOLD)  # type: ignore
 
     metric: Metric = model.hparams.metric  # type: ignore
+    embedding_dim: int = model.hparams.output_embedding_dim  # type: ignore
 
-    logger.info("Loading data from source table.")
-    vectors, index_pkey_map = load_data(model, rs)
+    if EXECUTION_MODE == Mode.Unpooled:
+        logger.info("Loading data from source table.")
+        vectors, index_pkey_map = load_data(embedding_dim, rs)
 
-    logger.info("Identifying duplicates.")
-    duplicate_candidates = find_duplicates(vectors, metric)
+        logger.info("Identifying duplicates.")
+        duplicate_candidates = find_duplicates(
+            source_vectors=vectors,
+            search_vectors=vectors,
+            metric=metric,
+            mode=Mode.Unpooled,
+        )
+    else:
+        logger.info(f"Loading source data in pool {SOURCE_POOL}")
+        source_vectors, source_index_pkey_map = load_data(
+            embedding_dim, rs, pool=SOURCE_POOL
+        )
+
+        logger.info(f"Loading search data in pool {SEARCH_POOL}")
+        search_vectors, search_index_pkey_map = load_data(
+            embedding_dim, rs, pool=SEARCH_POOL
+        )
+
+        index_pkey_map = {**source_index_pkey_map, **search_index_pkey_map}
+        duplicate_candidates = find_duplicates(
+            source_vectors=source_vectors,
+            search_vectors=search_vectors,
+            metric=metric,
+            mode=Mode.Pooled,
+        )
 
     upload_duplicate_candidates(rs, duplicate_candidates, index_pkey_map)
 
