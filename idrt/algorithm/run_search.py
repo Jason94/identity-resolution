@@ -246,16 +246,23 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
             metric=metric,
             mode=execution_mode,
         )
-    else:
+    else:  # execution_mode == Mode.Pooled or execution_mode == Mode.PooledReflective
         logger.info(f"Loading source data in pool {SOURCE_POOL}")
         source_vectors, source_index_pkey_map = load_data(
             embedding_dim, rs, pool=SOURCE_POOL
         )
 
-        logger.info(f"Loading search data in pool {SEARCH_POOL}")
-        search_vectors, search_index_pkey_map = load_data(
-            embedding_dim, rs, pool=SEARCH_POOL
-        )
+        if execution_mode == Mode.PooledReflective:
+            logger.info(f"Using source pool '{SOURCE_POOL}' as search pool.")
+            search_vectors, search_index_pkey_map = (
+                source_vectors,
+                source_index_pkey_map,
+            )
+        else:
+            logger.info(f"Loading search data in pool {SEARCH_POOL}")
+            search_vectors, search_index_pkey_map = load_data(
+                embedding_dim, rs, pool=SEARCH_POOL
+            )
 
         index_pkey_map = {**source_index_pkey_map, **search_index_pkey_map}
         duplicate_candidates = find_duplicates(
