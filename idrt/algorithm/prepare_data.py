@@ -38,7 +38,7 @@ BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 SCHEMA = os.environ["OUTPUT_SCHEMA"]
 TOKENS_TABLE = SCHEMA + ".idr_tokens"
 OUTPUT_TABLE = SCHEMA + ".idr_out"
-LIMIT = 2_000_000
+LIMIT = int(os.getenv("LIMIT", str(500_000)))
 
 
 def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) -> str:
@@ -61,7 +61,8 @@ def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) ->
             FROM temp_load_data AS temp
             LEFT JOIN {output_table} AS output
             ON temp.primary_key = output.primary_key
-            WHERE output.primary_key IS NULL OR temp.contact_timestamp > output.contact_timestamp;
+            WHERE output.primary_key IS NULL OR temp.contact_timestamp > output.contact_timestamp
+            LIMIT {LIMIT};
         """
     else:
         logger.info("Output table does not exist.")
