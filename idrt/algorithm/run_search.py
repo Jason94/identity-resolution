@@ -1,13 +1,13 @@
 import os
 import sys
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 from annoy import AnnoyIndex
 import logging
 from uuid import uuid4
 import torch
 import lightning.pytorch as pl
 from datetime import datetime
-from enum import Enum
+from enum import Enum, auto
 
 from parsons import Table
 from parsons.databases.redshift import Redshift
@@ -56,9 +56,21 @@ CLASSIFIER_URL = os.environ["CLASSIFIER_URL"]
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-Mode = Enum("Mode", ["Pooled", "Unpooled"])
 
-EXECUTION_MODE: Mode = Mode.Pooled if SEARCH_POOL and SOURCE_POOL else Mode.Unpooled
+class Mode(Enum):
+    Pooled = auto()
+    # PooledReflective means that we have the same source and search pool.
+    PooledReflective = auto()
+    Unpooled = auto()
+
+
+def determine_mode() -> Mode:
+    if SEARCH_POOL is None and SOURCE_POOL is None:
+        return Mode.Unpooled
+    elif SEARCH_POOL == SOURCE_POOL:
+        return Mode.PooledReflective
+    else:
+        return Mode.Pooled
 
 
 def load_raw_unpooled_data(rs: Redshift) -> Table:
@@ -153,9 +165,9 @@ def find_duplicates(
             source_vector, N_CLOSEST + 1, search_k=SEARCH_K, include_distances=True
         )
 
-        if mode == Mode.Unpooled:
-            # If we are in unpooled mode, then the search vector is in the source pool.
-            # Remove the element from its own neighbors
+        if mode == Mode.Unpooled or Mode.PooledReflective:
+            # If we are in unpooled mode or reflective mode, then the search vector is in the
+            # source pool. Remove the element from its own neighbors
             nbrs = nbrs[1:]
             distances = distances[1:]
 
@@ -221,7 +233,9 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
     metric: Metric = model.hparams.metric  # type: ignore
     embedding_dim: int = model.hparams.output_embedding_dim  # type: ignore
 
-    if EXECUTION_MODE == Mode.Unpooled:
+    execution_mode = determine_mode()
+
+    if execution_mode == Mode.Unpooled:
         logger.info("Loading data from source table.")
         vectors, index_pkey_map = load_data(embedding_dim, rs)
 
@@ -230,7 +244,7 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
             source_vectors=vectors,
             search_vectors=vectors,
             metric=metric,
-            mode=Mode.Unpooled,
+            mode=execution_mode,
         )
     else:
         logger.info(f"Loading source data in pool {SOURCE_POOL}")
@@ -248,7 +262,7 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
             source_vectors=source_vectors,
             search_vectors=search_vectors,
             metric=metric,
-            mode=Mode.Pooled,
+            mode=execution_mode,
         )
 
     upload_duplicate_candidates(rs, duplicate_candidates, index_pkey_map)
