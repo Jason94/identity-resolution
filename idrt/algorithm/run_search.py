@@ -177,10 +177,11 @@ def find_duplicates(
                 dist = (2 - (dist**2)) / 2
 
             if metric.distance_matches(dist):
-                if mode == Mode.Unpooled:
+                if mode == Mode.Unpooled or Mode.PooledReflective:
                     pair = [i, nbr]
-                    # If we are in unpooled mode, then the match will get reciprocated when we come
-                    # to searching for nbr's duplicates. Sort so that we don't store them twice.
+                    # If we are in unpooled or reflective mode, then the match will get reciprocated
+                    # when we come to searching for nbr's duplicates. Sort so that we don't store
+                    # them twice.
                     pair.sort()
                     pairs_with_distance[(pair[0], pair[1])] = dist
                 else:
@@ -239,13 +240,9 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
         logger.info("Loading data from source table.")
         vectors, index_pkey_map = load_data(embedding_dim, rs)
 
-        logger.info("Identifying duplicates.")
-        duplicate_candidates = find_duplicates(
-            source_vectors=vectors,
-            search_vectors=vectors,
-            metric=metric,
-            mode=execution_mode,
-        )
+        source_vectors = vectors
+        search_vectors = vectors
+
     else:  # execution_mode == Mode.Pooled or execution_mode == Mode.PooledReflective
         logger.info(f"Loading source data in pool {SOURCE_POOL}")
         source_vectors, source_index_pkey_map = load_data(
@@ -265,12 +262,13 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
             )
 
         index_pkey_map = {**source_index_pkey_map, **search_index_pkey_map}
-        duplicate_candidates = find_duplicates(
-            source_vectors=source_vectors,
-            search_vectors=search_vectors,
-            metric=metric,
-            mode=execution_mode,
-        )
+
+    duplicate_candidates = find_duplicates(
+        source_vectors=source_vectors,
+        search_vectors=search_vectors,
+        metric=metric,
+        mode=execution_mode,
+    )
 
     upload_duplicate_candidates(rs, duplicate_candidates, index_pkey_map)
 
