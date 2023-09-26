@@ -263,6 +263,12 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
 
         index_pkey_map = {**source_index_pkey_map, **search_index_pkey_map}
 
+    logger.debug("Source vectors:")
+    logger.debug(source_vectors)
+
+    logger.debug("Search vectors:")
+    logger.debug(search_vectors)
+
     duplicate_candidates = find_duplicates(
         source_vectors=source_vectors,
         search_vectors=search_vectors,
@@ -412,6 +418,9 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
     logger.info("Uploading results.")
     upload_data = Table(all_evaluated_pairs)
     upload_data.add_column("comparison_timestamp", datetime.now())
+
+    logger.debug(upload_data)
+
     rs.upsert(upload_data, DUP_OUTPUT_TABLE, primary_key=["pkey1", "pkey2"])
 
 
