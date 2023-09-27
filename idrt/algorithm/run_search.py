@@ -198,7 +198,7 @@ def find_duplicates(
                     )
                     log_once(logger, logging.DEBUG, "pair", f"pair example: {pair}")
 
-                if mode == Mode.Unpooled or Mode.PooledReflective:
+                if mode == Mode.Unpooled or mode == Mode.PooledReflective:
                     # If we are in unpooled or reflective mode, then the match will get reciprocated
                     # when we come to searching for nbr's duplicates. Sort so that we don't store
                     # them twice.
@@ -212,10 +212,7 @@ def find_duplicates(
 
                 if logger.level == logging.DEBUG:
                     log_once(
-                        logger,
-                        logging.DEBUG,
-                        "key",
-                        f"pair key example: {pair_tuple}"
+                        logger, logging.DEBUG, "key", f"pair key example: {pair_tuple}"
                     )
                 pairs_with_distance[pair_tuple] = dist
 
