@@ -389,8 +389,13 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
     if rs.table_exists(DUP_OUTPUT_TABLE):
         query += f"""
             left join {DUP_OUTPUT_TABLE} dups
-                on dups.pkey1 = a.pkey
-                and dups.pkey2 = b.pkey
+                on (
+                    dups.pkey1 = a.pkey
+                    and dups.pkey2 = b.pkey
+                ) or (
+                    dups.pkey1 = b.pkey
+                    and dups.pkey2 = a.pkey
+                )
             where dups.pkey1 is null
                 or dups.comparison_timestamp < a.contact_timestamp
                 or dups.comparison_timestamp < b.contact_timestamp
