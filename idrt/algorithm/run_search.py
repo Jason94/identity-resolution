@@ -181,6 +181,7 @@ def find_duplicates(
             if metric.distance_matches(dist):
                 source_pkey = source_index_pkey_map[i]
                 search_pkey = search_index_pkey_map[nbr_i]
+                pair = [source_pkey, search_pkey]
 
                 if logger.level == logging.DEBUG:
                     log_once(
@@ -195,19 +196,19 @@ def find_duplicates(
                         "search_pkey",
                         f"search_pkey example: {search_pkey}",
                     )
+                    log_once(logger, logging.DEBUG, "pair", f"pair example: {pair}")
 
                 if mode == Mode.Unpooled or Mode.PooledReflective:
                     # If we are in unpooled or reflective mode, then the match will get reciprocated
                     # when we come to searching for nbr's duplicates. Sort so that we don't store
                     # them twice.
-                    pair = [source_pkey, search_pkey]
                     pair.sort()
                     pairs_with_distance[(pair[0], pair[1])] = dist
                 else:
                     # If we are in pooled mode, then the source vector is not in the search pool
                     # and it's important to keep the source index in the first slot and the search
                     # index in the second slot!
-                    pairs_with_distance[(source_pkey, search_pkey)] = dist
+                    pairs_with_distance[tuple(pair)] = dist
 
         if i % 50_000 == 0:
             logger.info(f"{i} / {len(source_vectors)}")
