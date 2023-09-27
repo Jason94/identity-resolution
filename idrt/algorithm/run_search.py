@@ -263,11 +263,11 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
 
         index_pkey_map = {**source_index_pkey_map, **search_index_pkey_map}
 
-    logger.debug("Source vectors:")
-    logger.debug(source_vectors)
+        logger.debug("Source primary_keys sample:")
+        logger.debug(list(source_index_pkey_map.values())[0:15])
 
-    logger.debug("Search vectors:")
-    logger.debug(search_vectors)
+        logger.debug("Search primary_keys sample:")
+        logger.debug(list(search_index_pkey_map.values())[0:15])
 
     duplicate_candidates = find_duplicates(
         source_vectors=source_vectors,
