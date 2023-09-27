@@ -268,11 +268,12 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
                 embedding_dim, rs, pool=SEARCH_POOL
             )
 
-        logger.debug("Source primary_keys sample:")
-        logger.debug(list(source_index_pkey_map.values())[0:15])
+        if logger.level == logging.DEBUG:
+            logger.debug("Source primary_keys sample:")
+            logger.debug(list(source_index_pkey_map.values())[0:15])
 
-        logger.debug("Search primary_keys sample:")
-        logger.debug(list(search_index_pkey_map.values())[0:15])
+            logger.debug("Search primary_keys sample:")
+            logger.debug(list(search_index_pkey_map.values())[0:15])
 
     duplicate_candidates = find_duplicates(
         source_vectors=source_vectors,
@@ -282,6 +283,10 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
         metric=metric,
         mode=execution_mode,
     )
+
+    if logger.level == logging.DEBUG:
+        logger.debug("Candidate pairs sample:")
+        logger.debug(list(duplicate_candidates.keys())[0:15])
 
     upload_duplicate_candidates(rs, duplicate_candidates)
 
