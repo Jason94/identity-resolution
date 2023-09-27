@@ -203,12 +203,21 @@ def find_duplicates(
                     # when we come to searching for nbr's duplicates. Sort so that we don't store
                     # them twice.
                     pair.sort()
-                    pairs_with_distance[(pair[0], pair[1])] = dist
+                    pair_tuple = (pair[0], pair[1])
                 else:
                     # If we are in pooled mode, then the source vector is not in the search pool
                     # and it's important to keep the source index in the first slot and the search
                     # index in the second slot!
-                    pairs_with_distance[tuple(pair)] = dist
+                    pair_tuple = tuple(pair)
+
+                if logger.level == logging.DEBUG:
+                    log_once(
+                        logger,
+                        logging.DEBUG,
+                        "key",
+                        f"pair key example: {pair_tuple}"
+                    )
+                pairs_with_distance[pair_tuple] = dist
 
         if i % 50_000 == 0:
             logger.info(f"{i} / {len(source_vectors)}")
