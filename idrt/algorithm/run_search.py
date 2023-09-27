@@ -131,6 +131,8 @@ def load_data(
 def find_duplicates(
     search_vectors: List[List[float]],
     source_vectors: List[List[float]],
+    search_index_pkey_map: Dict[int, int],
+    source_index_pkey_map: Dict[int, int],
     metric: Metric,
     mode: Mode,
 ) -> Dict[Tuple[int, int], float]:
@@ -171,14 +173,17 @@ def find_duplicates(
             nbrs = nbrs[1:]
             distances = distances[1:]
 
-        for nbr, dist in zip(nbrs, distances):
+        for nbr_i, dist in zip(nbrs, distances):
             if metric.annoy_metric == "angular":
                 # Convert Annoy's angular distance to cosine similarity
                 dist = (2 - (dist**2)) / 2
 
             if metric.distance_matches(dist):
+                source_pkey = source_index_pkey_map[i]
+                search_pkey = search_index_pkey_map[nbr_i]
+                pair = [source_pkey, search_pkey]
+
                 if mode == Mode.Unpooled or Mode.PooledReflective:
-                    pair = [i, nbr]
                     # If we are in unpooled or reflective mode, then the match will get reciprocated
                     # when we come to searching for nbr's duplicates. Sort so that we don't store
                     # them twice.
@@ -188,7 +193,7 @@ def find_duplicates(
                     # If we are in pooled mode, then the source vector is not in the search pool
                     # and it's important to keep the source index in the first slot and the search
                     # index in the second slot!
-                    pairs_with_distance[(i, nbr)] = dist
+                    pairs_with_distance[pair] = dist
 
         if i % 50_000 == 0:
             logger.info(f"{i} / {len(source_vectors)}")
@@ -199,7 +204,6 @@ def find_duplicates(
 def upload_duplicate_candidates(
     rs: Redshift,
     candidates: Dict[Tuple[int, int], float],
-    index_pkey_map: Dict[int, int],
 ):
     logger.info("Preparing data for upload.")
     item_classes = []
@@ -209,7 +213,7 @@ def upload_duplicate_candidates(
         for item in pair:
             item_classes.append(
                 {
-                    "primary_key": index_pkey_map[item],
+                    "primary_key": item,
                     "class": class_id,
                     "class_index": i,
                     "metric": dist,
@@ -243,6 +247,9 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
         source_vectors = vectors
         search_vectors = vectors
 
+        source_index_pkey_map = index_pkey_map
+        search_index_pkey_map = index_pkey_map
+
     else:  # execution_mode == Mode.Pooled or execution_mode == Mode.PooledReflective
         logger.info(f"Loading source data in pool {SOURCE_POOL}")
         source_vectors, source_index_pkey_map = load_data(
@@ -261,8 +268,6 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
                 embedding_dim, rs, pool=SEARCH_POOL
             )
 
-        index_pkey_map = {**source_index_pkey_map, **search_index_pkey_map}
-
         logger.debug("Source primary_keys sample:")
         logger.debug(list(source_index_pkey_map.values())[0:15])
 
@@ -272,11 +277,13 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
     duplicate_candidates = find_duplicates(
         source_vectors=source_vectors,
         search_vectors=search_vectors,
+        source_index_pkey_map=source_index_pkey_map,
+        search_index_pkey_map=search_index_pkey_map,
         metric=metric,
         mode=execution_mode,
     )
 
-    upload_duplicate_candidates(rs, duplicate_candidates, index_pkey_map)
+    upload_duplicate_candidates(rs, duplicate_candidates)
 
 
 def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
