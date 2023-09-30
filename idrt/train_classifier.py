@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 import logging
+from argparse import Namespace
 from torchmetrics.classification import F1Score, Precision, Recall
 
 from data import ContactDataModule, Field, lookup_field
@@ -183,16 +184,7 @@ class PlContactsClassifier(pl.LightningModule):
         return self.classifier.forward(attn_out1, attn_out2)
 
 
-if __name__ == "__main__":
-    logging.basicConfig()
-
-    parser = make_universal_args(mode="classifier")
-    make_model_io_args(parser)
-    make_data_args(parser)
-    make_training_args(parser, mode="classifier")
-
-    args = parser.parse_args()
-
+def train_classifier(args: Namespace):
     data_module = ContactDataModule(
         batch_size=args.batch_size,
         return_eval_fields=True,
@@ -255,3 +247,16 @@ if __name__ == "__main__":
     trainer.fit(
         model=lightning_model, datamodule=data_module, ckpt_path=checkpoint_path
     )
+
+
+if __name__ == "__main__":
+    logging.basicConfig()
+
+    parser = make_universal_args(mode="classifier")
+    make_model_io_args(parser)
+    make_data_args(parser)
+    make_training_args(parser, mode="classifier")
+
+    args = parser.parse_args()
+
+    train_classifier(args)

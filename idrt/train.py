@@ -182,9 +182,17 @@ class PlContactEncoder(pl.LightningModule):
 
 def train(
     args: Namespace,
-    data_module: ContactDataModule,
     lightning_logger: Optional[PlLogger] = None,
 ):
+    data_module = ContactDataModule(
+        batch_size=args.batch_size,
+        return_eval_fields=True,
+        train_file=args.training_data,
+        val_file=args.eval_data,
+        fields=[lookup_field(f_name) for f_name in args.field_names],
+    )
+    args.vocab_size = len(data_module.vocabulary)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Found device {device}")
 
@@ -256,7 +264,7 @@ def train(
     )
 
 
-def margin_experiment(args: Namespace):
+def margin_experiment(args: Namespace, data_module: ContactDataModule):
     start = 1.5
     end = 4.0
     for margin in [start + x / 2 for x in range(0, int(end - start) * 2)]:
@@ -301,16 +309,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    data_module = ContactDataModule(
-        batch_size=args.batch_size,
-        return_eval_fields=True,
-        train_file=args.training_data,
-        val_file=args.eval_data,
-        fields=[lookup_field(f_name) for f_name in args.field_names],
-    )
-    args.vocab_size = len(data_module.vocabulary)
-
-    # margin_experiment(args)
-    # embedding_experiment(args, data_module)
-
-    train(args, data_module)
+    train(args)

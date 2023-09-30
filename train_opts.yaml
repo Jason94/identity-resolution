@@ -1,0 +1,23 @@
+field_names:
+  - name
+  - email
+  - phone
+  - state
+metric: "ContrastiveMetric"
+checkpoint_path: null
+training_data: "prepared_train_data.csv"
+eval_data: "prepared_val_data.csv"
+embedding_dim: 100
+n_heads_attn: 4
+attn_dim: 360
+norm_eps: 1.0e-06
+output_mlp_layers: 6
+output_embedding_dim: 65
+threshold: 0.975
+batch_size: 128
+margin: 2.0
+learning_rate: 5.0e-07
+weight_decay: 0.002
+num_epochs: 8
+p_dropout: 0.0
+version_name: ""
