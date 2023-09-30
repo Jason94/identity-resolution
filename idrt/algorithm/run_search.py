@@ -12,7 +12,7 @@ from enum import Enum, auto
 from parsons import Table
 from parsons.databases.redshift import Redshift
 
-from utils import init_rs_env, get_model
+from utils import init_rs_env, get_model, log_once
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -131,6 +131,8 @@ def load_data(
 def find_duplicates(
     search_vectors: List[List[float]],
     source_vectors: List[List[float]],
+    search_index_pkey_map: Dict[int, int],
+    source_index_pkey_map: Dict[int, int],
     metric: Metric,
     mode: Mode,
 ) -> Dict[Tuple[int, int], float]:
@@ -171,24 +173,48 @@ def find_duplicates(
             nbrs = nbrs[1:]
             distances = distances[1:]
 
-        for nbr, dist in zip(nbrs, distances):
+        for nbr_i, dist in zip(nbrs, distances):
             if metric.annoy_metric == "angular":
                 # Convert Annoy's angular distance to cosine similarity
                 dist = (2 - (dist**2)) / 2
 
             if metric.distance_matches(dist):
-                if mode == Mode.Unpooled or Mode.PooledReflective:
-                    pair = [i, nbr]
+                source_pkey = source_index_pkey_map[i]
+                search_pkey = search_index_pkey_map[nbr_i]
+                pair = [source_pkey, search_pkey]
+
+                if logger.level == logging.DEBUG:
+                    log_once(
+                        logger,
+                        logging.DEBUG,
+                        "source_pkey",
+                        f"source_pkey example: {source_pkey}",
+                    )
+                    log_once(
+                        logger,
+                        logging.DEBUG,
+                        "search_pkey",
+                        f"search_pkey example: {search_pkey}",
+                    )
+                    log_once(logger, logging.DEBUG, "pair", f"pair example: {pair}")
+
+                if mode == Mode.Unpooled or mode == Mode.PooledReflective:
                     # If we are in unpooled or reflective mode, then the match will get reciprocated
                     # when we come to searching for nbr's duplicates. Sort so that we don't store
                     # them twice.
                     pair.sort()
-                    pairs_with_distance[(pair[0], pair[1])] = dist
+                    pair_tuple = (pair[0], pair[1])
                 else:
                     # If we are in pooled mode, then the source vector is not in the search pool
                     # and it's important to keep the source index in the first slot and the search
                     # index in the second slot!
-                    pairs_with_distance[(i, nbr)] = dist
+                    pair_tuple = tuple(pair)
+
+                if logger.level == logging.DEBUG:
+                    log_once(
+                        logger, logging.DEBUG, "key", f"pair key example: {pair_tuple}"
+                    )
+                pairs_with_distance[pair_tuple] = dist
 
         if i % 50_000 == 0:
             logger.info(f"{i} / {len(source_vectors)}")
@@ -199,7 +225,6 @@ def find_duplicates(
 def upload_duplicate_candidates(
     rs: Redshift,
     candidates: Dict[Tuple[int, int], float],
-    index_pkey_map: Dict[int, int],
 ):
     logger.info("Preparing data for upload.")
     item_classes = []
@@ -209,7 +234,7 @@ def upload_duplicate_candidates(
         for item in pair:
             item_classes.append(
                 {
-                    "primary_key": index_pkey_map[item],
+                    "primary_key": item,
                     "class": class_id,
                     "class_index": i,
                     "metric": dist,
@@ -235,6 +260,7 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
     embedding_dim: int = model.hparams.output_embedding_dim  # type: ignore
 
     execution_mode = determine_mode()
+    logger.debug(f"Execution mode: {execution_mode}")
 
     if execution_mode == Mode.Unpooled:
         logger.info("Loading data from source table.")
@@ -242,6 +268,9 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
 
         source_vectors = vectors
         search_vectors = vectors
+
+        source_index_pkey_map = index_pkey_map
+        search_index_pkey_map = index_pkey_map
 
     else:  # execution_mode == Mode.Pooled or execution_mode == Mode.PooledReflective
         logger.info(f"Loading source data in pool {SOURCE_POOL}")
@@ -261,22 +290,27 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
                 embedding_dim, rs, pool=SEARCH_POOL
             )
 
-        index_pkey_map = {**source_index_pkey_map, **search_index_pkey_map}
+        if logger.level == logging.DEBUG:
+            logger.debug("Source primary_keys sample:")
+            logger.debug(list(source_index_pkey_map.values())[0:15])
 
-    logger.debug("Source vectors:")
-    logger.debug(source_vectors)
-
-    logger.debug("Search vectors:")
-    logger.debug(search_vectors)
+            logger.debug("Search primary_keys sample:")
+            logger.debug(list(search_index_pkey_map.values())[0:15])
 
     duplicate_candidates = find_duplicates(
         source_vectors=source_vectors,
         search_vectors=search_vectors,
+        source_index_pkey_map=source_index_pkey_map,
+        search_index_pkey_map=search_index_pkey_map,
         metric=metric,
         mode=execution_mode,
     )
 
-    upload_duplicate_candidates(rs, duplicate_candidates, index_pkey_map)
+    if logger.level == logging.DEBUG:
+        logger.debug("Candidate pairs sample:")
+        logger.debug(list(duplicate_candidates.keys())[0:15])
+
+    upload_duplicate_candidates(rs, duplicate_candidates)
 
 
 def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
@@ -355,8 +389,13 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
     if rs.table_exists(DUP_OUTPUT_TABLE):
         query += f"""
             left join {DUP_OUTPUT_TABLE} dups
-                on dups.pkey1 = a.pkey
-                and dups.pkey2 = b.pkey
+                on (
+                    dups.pkey1 = a.pkey
+                    and dups.pkey2 = b.pkey
+                ) or (
+                    dups.pkey1 = b.pkey
+                    and dups.pkey2 = a.pkey
+                )
             where dups.pkey1 is null
                 or dups.comparison_timestamp < a.contact_timestamp
                 or dups.comparison_timestamp < b.contact_timestamp
