@@ -30,39 +30,63 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 LOAD_DATA_QUERY = os.environ["LOAD_DATA_QUERY"]
-PRIMARY_KEY = os.environ["PRIMARY_KEY"]
 
 DATA_PATH = "data.csv"
 
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 
-TOKENS_TABLE = os.environ["TOKENS_TABLE"]
-OUTPUT_TABLE = os.environ["OUTPUT_TABLE"]
-LIMIT = 2_000_000
+SCHEMA = os.environ["OUTPUT_SCHEMA"]
+TOKENS_TABLE = SCHEMA + ".idr_tokens"
+OUTPUT_TABLE = SCHEMA + ".idr_out"
+LIMIT = int(os.getenv("LIMIT", str(500_000)))
 
 
-def load_data_conditionally(
-    rs: Redshift, primary_key: str, load_query: str, output_table: str
-) -> str:
+def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) -> str:
     if rs.table_exists(output_table):
+        logger.info("Output table detected.")
         temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
 
-        load_query = f"""
+        complete_query = f"""
             {temp_table_query}
 
-            SELECT temp.*
+            SELECT
+                temp.primary_key,
+                temp.contact_timestamp,
+                LOWER(COALESCE(temp.first_name, '')) AS first_name,
+                LOWER(COALESCE(temp.last_name, '')) AS last_name,
+                LOWER(COALESCE(temp.email, '')) AS email,
+                LOWER(COALESCE(temp.state, '')) as state,
+                RIGHT(REGEXP_REPLACE(LOWER(COALESCE(temp.phone, '')), '[^0-9]', ''), 10) as phone,
+                temp.pool
             FROM temp_load_data AS temp
             LEFT JOIN {output_table} AS output
-            ON temp.{primary_key} = output.{primary_key}
-            WHERE output.{primary_key} IS NULL OR temp.contact_timestamp > output.contact_timestamp;
+            ON temp.primary_key = output.primary_key
+            WHERE output.primary_key IS NULL OR temp.contact_timestamp > output.contact_timestamp
+            LIMIT {LIMIT};
         """
-    return load_query
+    else:
+        logger.info("Output table does not exist.")
+        temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
+
+        complete_query = f"""
+            {temp_table_query}
+
+            SELECT
+                temp.primary_key,
+                temp.contact_timestamp,
+                LOWER(COALESCE(temp.first_name, '')) AS first_name,
+                LOWER(COALESCE(temp.last_name, '')) AS last_name,
+                LOWER(COALESCE(temp.email, '')) AS email,
+                LOWER(COALESCE(temp.state, '')) as state,
+                RIGHT(REGEXP_REPLACE(LOWER(COALESCE(temp.phone, '')), '[^0-9]', ''), 10) as phone,
+                temp.pool
+            FROM temp_load_data AS temp;
+        """
+    return complete_query
 
 
 def save_data(rs: Redshift) -> Table:
-    query = load_data_conditionally(
-        rs, PRIMARY_KEY, LOAD_DATA_QUERY.rstrip(" ;"), OUTPUT_TABLE
-    )
+    query = load_data_conditionally(rs, LOAD_DATA_QUERY.rstrip(" ;"), OUTPUT_TABLE)
     logger.info(f"Executing: {query}")
     data = rs.query(query) or Table()
 
@@ -75,6 +99,9 @@ def save_data(rs: Redshift) -> Table:
 
     logger.info(f"Found {data.num_rows} rows.")
 
+    logger.debug("Queried data:")
+    logger.debug(data)
+
     data.to_csv(DATA_PATH, encoding="utf8")
 
     return data
@@ -83,7 +110,9 @@ def save_data(rs: Redshift) -> Table:
 def upload_prepared_data(rs: Redshift, pl_data: ContactSingletonDataModule):
     logger.info("Saving tokens")
     data = Table.from_csv(pl_data.prepared_file)
-    rs.upsert(table_obj=data, target_table=TOKENS_TABLE, primary_key=PRIMARY_KEY)
+    logger.debug("Saved prepared data:")
+    logger.debug(data)
+    rs.upsert(table_obj=data, target_table=TOKENS_TABLE, primary_key="primary_key")
 
 
 def main():
@@ -119,19 +148,26 @@ def main():
     logger.info("Preparing results for upload.")
     result_lists = []
 
+    logger.debug("Results example:")
+    logger.debug(results[0])
+
     for tensor, record in results:
         data = zip(
-            record[PRIMARY_KEY].tolist(), record["contact_timestamp"], tensor.tolist()  # type: ignore
+            record["primary_key"].tolist(),  # type: ignore
+            record["contact_timestamp"],  # type: ignore
+            record["pool"],  # type: ignore
+            tensor.tolist(),
         )
-        for pkey, timestamp, embedding in data:
-            result_lists.append([pkey, timestamp, *embedding])  # type: ignore
+        for pkey, timestamp, pool, embedding in data:
+            result_lists.append([pkey, timestamp, pool, *embedding])  # type: ignore
 
     embedding_dim = results[0][0].shape[1]
     uploads = Table(
         [
             [
-                PRIMARY_KEY,
+                "primary_key",
                 "contact_timestamp",
+                "pool",
                 *[str(x) for x in range(0, embedding_dim)],
             ],
             *result_lists,
@@ -139,8 +175,9 @@ def main():
     )
 
     logger.info("Uploading results.")
+    logger.debug(uploads)
     rs = Redshift()
-    rs.upsert(uploads, OUTPUT_TABLE, primary_key=PRIMARY_KEY)
+    rs.upsert(uploads, OUTPUT_TABLE, primary_key="primary_key")
 
 
 if __name__ == "__main__":

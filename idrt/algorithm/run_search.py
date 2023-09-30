@@ -1,12 +1,13 @@
 import os
 import sys
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 from annoy import AnnoyIndex
 import logging
 from uuid import uuid4
 import torch
 import lightning.pytorch as pl
 from datetime import datetime
+from enum import Enum, auto
 
 from parsons import Table
 from parsons.databases.redshift import Redshift
@@ -33,8 +34,11 @@ if __name__ == "__main__":
             override=True, dotenv_path=os.path.join(os.path.dirname(__file__), ".env")
         )
 
-SOURCE_TABLE = os.environ["SOURCE_TABLE"]
-PRIMARY_KEY = os.environ["PRIMARY_KEY"]
+SCHEMA = os.environ["OUTPUT_SCHEMA"]
+SOURCE_TABLE = SCHEMA + ".idr_out"
+TOKENS_TABLE = SCHEMA + ".idr_tokens"
+DUP_CANDIDATE_TABLE = SCHEMA + ".idr_candidates"
+DUP_OUTPUT_TABLE = SCHEMA + ".idr_dups"
 
 THRESHOLD = os.getenv("THRESHOLD")
 CLASSIFIER_THRESHOLD = os.getenv("CLASSIFIER_THRESHOLD")
@@ -43,34 +47,60 @@ N_TREES = int(os.getenv("N_TREES", 10))
 SEARCH_K = int(os.getenv("SEARCH_K", -1))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 
+SEARCH_POOL = os.getenv("SEARCH_POOL")
+SOURCE_POOL = os.getenv("SOURCE_POOL")
+
 ENCODER_URL = os.environ["MODEL_URL"]
 CLASSIFIER_URL = os.environ["CLASSIFIER_URL"]
-
-TOKENS_TABLE = os.environ["TOKENS_TABLE"]
-DUP_CANDIDATE_TABLE = os.environ["DUP_CANDIDATE_TABLE"]
-DUP_OUTPUT_TABLE = os.environ["DUP_OUTPUT_TABLE"]
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def load_data(
-    pl_model: PlContactEncoder, rs: Redshift
+class Mode(Enum):
+    Pooled = auto()
+    # PooledReflective means that we have the same source and search pool.
+    PooledReflective = auto()
+    Unpooled = auto()
+
+
+def determine_mode() -> Mode:
+    if SEARCH_POOL is None and SOURCE_POOL is None:
+        return Mode.Unpooled
+    elif SEARCH_POOL == SOURCE_POOL:
+        return Mode.PooledReflective
+    else:
+        return Mode.Pooled
+
+
+def load_raw_unpooled_data(rs: Redshift) -> Table:
+    return rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY primary_key;") or Table()
+
+
+def load_raw_pooled_data(rs: Redshift, pool: str) -> Table:
+    return (
+        rs.query(
+            f"""
+            SELECT *
+            FROM {SOURCE_TABLE}
+            WHERE pool = %s
+            ORDER BY primary_key;
+            """,
+            [pool],
+        )
+        or Table()
+    )
+
+
+def shape_raw_data(
+    raw_data: Table, embedding_dim: int
 ) -> Tuple[List[List[float]], Dict[int, int]]:
-    embedding_dim: int = pl_model.hparams.output_embedding_dim  # type: ignore
-    raw_data = rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY {PRIMARY_KEY};")
-
-    if raw_data is None:
-        raise ConnectionError("Error retrieving data from the database.")
-
-    logger.info(f"Found {raw_data.num_rows} rows to parse. Reshaping data.")
-
     vectors = []
     index_id_map = {}
     i = 0
 
     for row in raw_data:
-        index_id_map[i] = row[PRIMARY_KEY]
+        index_id_map[i] = row["primary_key"]
         vectors.append([row[f"x_{n}"] for n in range(0, embedding_dim)])
 
         i += 1
@@ -80,13 +110,46 @@ def load_data(
     return vectors, index_id_map
 
 
-def find_duplicates(vectors, metric: Metric) -> Dict[Set[int], float]:
-    f = len(vectors[0])
+def load_data(
+    embedding_dim: int,
+    rs: Redshift,
+    pool: Optional[str] = None,
+) -> Tuple[List[List[float]], Dict[int, int]]:
+    if pool is not None:
+        raw_data = load_raw_pooled_data(rs, pool)
+    else:
+        raw_data = load_raw_unpooled_data(rs)
+
+    if raw_data is None:
+        raise ConnectionError("Error retrieving data from the database.")
+
+    logger.info(f"Found {raw_data.num_rows} rows to parse. Reshaping data.")
+
+    return shape_raw_data(raw_data, embedding_dim)
+
+
+def find_duplicates(
+    search_vectors: List[List[float]],
+    source_vectors: List[List[float]],
+    metric: Metric,
+    mode: Mode,
+) -> Dict[Tuple[int, int], float]:
+    """Find duplicate candidates
+
+    Args:
+        search_vectors: Vectors to search through.
+        source_vectors: Vectors to try to match.
+        metric
+
+    Returns:
+        Dict[(source_vector_index:int, search_vector_index:int), distance:float]
+    """
+    f = len(search_vectors[0])
     logger.info(f"Searching under metric {metric.annoy_metric}")
     t = AnnoyIndex(f, metric.annoy_metric)  # type: ignore
 
-    for i in range(len(vectors)):
-        t.add_item(i, vectors[i])
+    for i in range(len(search_vectors)):
+        t.add_item(i, search_vectors[i])
 
     logger.info("Building vector tree")
     t.build(N_TREES)
@@ -95,14 +158,18 @@ def find_duplicates(vectors, metric: Metric) -> Dict[Set[int], float]:
         f"Searching for duplicates with neighborhood threshold {metric.threshold:0.4f}"
     )
     pairs_with_distance = {}
-    for i in range(len(vectors)):
-        nbrs, distances = t.get_nns_by_item(
-            i, N_CLOSEST + 1, search_k=SEARCH_K, include_distances=True
+    for i in range(len(source_vectors)):
+        source_vector = source_vectors[i]
+
+        nbrs, distances = t.get_nns_by_vector(
+            source_vector, N_CLOSEST + 1, search_k=SEARCH_K, include_distances=True
         )
 
-        # Remove the element from its own neighbors
-        nbrs = nbrs[1:]
-        distances = distances[1:]
+        if mode == Mode.Unpooled or Mode.PooledReflective:
+            # If we are in unpooled mode or reflective mode, then the search vector is in the
+            # source pool. Remove the element from its own neighbors
+            nbrs = nbrs[1:]
+            distances = distances[1:]
 
         for nbr, dist in zip(nbrs, distances):
             if metric.annoy_metric == "angular":
@@ -110,18 +177,29 @@ def find_duplicates(vectors, metric: Metric) -> Dict[Set[int], float]:
                 dist = (2 - (dist**2)) / 2
 
             if metric.distance_matches(dist):
-                pair = [i, nbr]
-                pair.sort()
-                pairs_with_distance[(pair[0], pair[1])] = dist
+                if mode == Mode.Unpooled or Mode.PooledReflective:
+                    pair = [i, nbr]
+                    # If we are in unpooled or reflective mode, then the match will get reciprocated
+                    # when we come to searching for nbr's duplicates. Sort so that we don't store
+                    # them twice.
+                    pair.sort()
+                    pairs_with_distance[(pair[0], pair[1])] = dist
+                else:
+                    # If we are in pooled mode, then the source vector is not in the search pool
+                    # and it's important to keep the source index in the first slot and the search
+                    # index in the second slot!
+                    pairs_with_distance[(i, nbr)] = dist
 
         if i % 50_000 == 0:
-            logger.info(f"{i} / {len(vectors)}")
+            logger.info(f"{i} / {len(source_vectors)}")
 
     return pairs_with_distance
 
 
 def upload_duplicate_candidates(
-    rs: Redshift, candidates: Dict[Set[int], float], index_pkey_map: Dict[int, int]
+    rs: Redshift,
+    candidates: Dict[Tuple[int, int], float],
+    index_pkey_map: Dict[int, int],
 ):
     logger.info("Preparing data for upload.")
     item_classes = []
@@ -131,7 +209,7 @@ def upload_duplicate_candidates(
         for item in pair:
             item_classes.append(
                 {
-                    PRIMARY_KEY: index_pkey_map[item],
+                    "primary_key": index_pkey_map[item],
                     "class": class_id,
                     "class_index": i,
                     "metric": dist,
@@ -154,12 +232,49 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
         model.hparams.metric.threshold = float(THRESHOLD)  # type: ignore
 
     metric: Metric = model.hparams.metric  # type: ignore
+    embedding_dim: int = model.hparams.output_embedding_dim  # type: ignore
 
-    logger.info("Loading data from source table.")
-    vectors, index_pkey_map = load_data(model, rs)
+    execution_mode = determine_mode()
 
-    logger.info("Identifying duplicates.")
-    duplicate_candidates = find_duplicates(vectors, metric)
+    if execution_mode == Mode.Unpooled:
+        logger.info("Loading data from source table.")
+        vectors, index_pkey_map = load_data(embedding_dim, rs)
+
+        source_vectors = vectors
+        search_vectors = vectors
+
+    else:  # execution_mode == Mode.Pooled or execution_mode == Mode.PooledReflective
+        logger.info(f"Loading source data in pool {SOURCE_POOL}")
+        source_vectors, source_index_pkey_map = load_data(
+            embedding_dim, rs, pool=SOURCE_POOL
+        )
+
+        if execution_mode == Mode.PooledReflective:
+            logger.info(f"Using source pool '{SOURCE_POOL}' as search pool.")
+            search_vectors, search_index_pkey_map = (
+                source_vectors,
+                source_index_pkey_map,
+            )
+        else:
+            logger.info(f"Loading search data in pool {SEARCH_POOL}")
+            search_vectors, search_index_pkey_map = load_data(
+                embedding_dim, rs, pool=SEARCH_POOL
+            )
+
+        index_pkey_map = {**source_index_pkey_map, **search_index_pkey_map}
+
+    logger.debug("Source vectors:")
+    logger.debug(source_vectors)
+
+    logger.debug("Search vectors:")
+    logger.debug(search_vectors)
+
+    duplicate_candidates = find_duplicates(
+        source_vectors=source_vectors,
+        search_vectors=search_vectors,
+        metric=metric,
+        mode=execution_mode,
+    )
 
     upload_duplicate_candidates(rs, duplicate_candidates, index_pkey_map)
 
@@ -180,7 +295,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
     query = f"""
             with a as (
                 select
-                    idr_candidates.{PRIMARY_KEY} as pkey,
+                    idr_candidates.primary_key as pkey,
                     class,
                     contact_timestamp,
                     name_tokens as name_tokens1,
@@ -193,11 +308,11 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
                     state_length as state_length1
                 from {DUP_CANDIDATE_TABLE}
                 join {TOKENS_TABLE} t
-                    on t.{PRIMARY_KEY} = idr_candidates.{PRIMARY_KEY}
+                    on t.primary_key = idr_candidates.primary_key
                 where class_index = 0
             ), b as (
                 select
-                    idr_candidates.{PRIMARY_KEY} as pkey,
+                    idr_candidates.primary_key as pkey,
                     class,
                     contact_timestamp,
                     name_tokens as name_tokens2,
@@ -210,7 +325,7 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
                     state_length as state_length2
                 from {DUP_CANDIDATE_TABLE}
                 join {TOKENS_TABLE} t
-                    on t.{PRIMARY_KEY} = idr_candidates.{PRIMARY_KEY}
+                    on t.primary_key = idr_candidates.primary_key
                 where class_index = 1
             )
             select
@@ -277,7 +392,9 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
 
     logger.info("Running classification model. This will take a while!")
     all_evaluated_pairs = []
-    for classification_score, labels, data in trainer.predict(classifier_model, pl_data):  # type: ignore
+    for classification_score, labels, data in trainer.predict(  # type: ignore
+        classifier_model, pl_data
+    ):
         all_evaluated_pairs.extend(
             transpose_dict_of_lists(
                 {
@@ -301,6 +418,9 @@ def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
     logger.info("Uploading results.")
     upload_data = Table(all_evaluated_pairs)
     upload_data.add_column("comparison_timestamp", datetime.now())
+
+    logger.debug(upload_data)
+
     rs.upsert(upload_data, DUP_OUTPUT_TABLE, primary_key=["pkey1", "pkey2"])
 
 

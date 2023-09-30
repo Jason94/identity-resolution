@@ -188,17 +188,20 @@ class ContactDataModule(pl.LightningDataModule):
         def _tokenize(row: dict) -> pd.Series:
             data = []
             indices = []
+            max_length = field.max_length
+            pad_token = tokenizer[PAD_CHARACTER]
+
             for i in ["1", "2"]:
                 full_text = " ".join(
                     [row[subfield + i] for subfield in field.subfield_labels]
                 )
                 full_text = ContactDataModule._preprocess_field_text(full_text)
-                non_pad_length = len(full_text)
 
-                # Truncate or pad to max_length
-                full_text = full_text[: field.max_length].ljust(
-                    field.max_length, PAD_CHARACTER
-                )
+                full_text = full_text[: field.max_length]
+                non_pad_length = len(full_text)
+                padding_length = max_length - non_pad_length
+                tokens = [tokenizer[c] for c in full_text]
+                tokens.extend([pad_token] * padding_length)
 
                 # Convert to a list of character tokens
                 tokens = [tokenizer[c] for c in full_text]
