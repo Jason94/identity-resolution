@@ -233,36 +233,23 @@ def gather_data(n_contacts: int) -> List[dict]:
     os.environ["REDSHIFT_DB"] = os.environ["REDSHIFT_DATABASE"]
     os.environ["REDSHIFT_USERNAME"] = os.environ["REDSHIFT_CREDENTIAL_USERNAME"]
     os.environ["REDSHIFT_PASSWORD"] = os.environ["REDSHIFT_CREDENTIAL_PASSWORD"]
-    os.environ["S3_TEMP_BUCKET"] = (
-        os.getenv("S3_TEMP_BUCKET") or "tmc-member-indivisible"
-    )
 
     rs = Redshift()
 
     data = (
         rs.query(
             f"""
-        WITH ak_phones AS (
-            SELECT user_id, phone
-            FROM (
-                SELECT
-                    user_id,
-                    phone,
-                    ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY updated_at DESC) as rn
-                FROM indivisible_ak.core_phone
-            )
-            WHERE rn = 1
+        WITH data AS (
+            <...load your data here...>
         )
         SELECT
-            LOWER(a.first_name) AS first_name,
-            LOWER(a.last_name) AS last_name,
-            LOWER(a.email) AS email,
-            LOWER(COALESCE(a.state, '')) as state,
-            RIGHT(REGEXP_REPLACE(LOWER(COALESCE(p.phone, '')), '[^0-9]', ''), 10) as phone,
+            LOWER(first_name) AS first_name,
+            LOWER(last_name) AS last_name,
+            LOWER(email) AS email,
+            LOWER(COALESCE(state, '')) as state,
+            RIGHT(REGEXP_REPLACE(LOWER(COALESCE(phone, '')), '[^0-9]', ''), 10) as phone,
             ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rownum
-        FROM indivisible_ak.core_user a
-        LEFT JOIN ak_phones p
-            ON p.user_id = a.id
+        FROM data
         WHERE
             first_name IS NOT NULL
             AND last_name IS NOT NULL

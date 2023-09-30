@@ -59,3 +59,12 @@ def get_model(
     logger.info(model.hparams)
 
     return model
+
+
+logged_keys = []
+
+
+def log_once(logger: logging.Logger, level: int, key: str, message: str):
+    if key not in logged_keys:
+        logged_keys.append(key)
+        logger.log(level, message)
