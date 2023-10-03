@@ -8,6 +8,7 @@ from torch import optim
 import logging
 from argparse import Namespace
 from torchmetrics.classification import F1Score, Precision, Recall
+from uuid import uuid4
 
 from data import ContactDataModule, Field, lookup_field
 from model import ContactEncoder
@@ -31,6 +32,8 @@ class PlContactsClassifier(pl.LightningModule):
         field_names: List[str],
         encoder: ContactEncoder,
         classification_threshold: float,
+        encoder_uuid: Optional[str] = None,
+        uuid: Optional[str] = None,
         pre_pool_mlp_layers: Optional[int] = None,
         pool_mlp_layers: Optional[int] = None,
         checkpoint_path: Optional[str] = None,
@@ -46,6 +49,9 @@ class PlContactsClassifier(pl.LightningModule):
         classifier: Optional[ContactsClassifier] = None,
     ):
         super().__init__()
+
+        if uuid is None:
+            uuid = str(uuid4())
 
         # TODO: Find a better way of handling the encoder
         self.save_hyperparameters(ignore=["classifier", "encoder"])
@@ -195,7 +201,9 @@ def train_classifier(args: Namespace):
 
     checkpoint_path: Optional[str] = args.checkpoint_path
 
-    encoder = PlContactEncoder.load_from_checkpoint(args.encoder_path).encoder
+    encoder_trainer = PlContactEncoder.load_from_checkpoint(args.encoder_path)
+    encoder_uuid: str = encoder_trainer.hparams.uuid  # type: ignore
+    encoder = encoder_trainer.encoder
     delattr(args, "encoder_path")
 
     if checkpoint_path is not None:
@@ -203,6 +211,12 @@ def train_classifier(args: Namespace):
         lightning_model = PlContactsClassifier.load_from_checkpoint(
             checkpoint_path, encoder=encoder
         )
+
+        if lightning_model.hparams.encoder_uuid != encoder_uuid:  # type: ignore
+            raise ValueError(
+                "Cannot train classifier checkpoint on a different encoder model"
+            )
+
         lightning_model.save_hyperparameters(
             {
                 "batch_size": args.batch_size,
@@ -215,10 +229,7 @@ def train_classifier(args: Namespace):
         print(lightning_model.hparams)
     else:
         lightning_model = PlContactsClassifier(
-            **{
-                **vars(args),
-                "encoder": encoder,
-            }
+            **{**vars(args), "encoder": encoder, "encoder_uuid": encoder_uuid}
         )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

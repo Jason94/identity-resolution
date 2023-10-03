@@ -18,6 +18,7 @@ from utilities import transpose_dict_of_lists, split_field_dict
 from metric import Metric
 from cosine_metric import CosineMetric  # noqa:F401
 from contrastive_metric import ContrastiveMetric  # noqa:F401
+from uuid import uuid4
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class PlContactEncoder(pl.LightningModule):
         self,
         field_names: List[str],
         vocab_size: int,
+        uuid: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
         # TODO: Delete unused hyperparameter prepared_data
         prepared_data: Optional[str] = None,
@@ -63,6 +65,9 @@ class PlContactEncoder(pl.LightningModule):
         # --- Evaluation Performance Data
         self.validation_labels = []
         self.validation_preds = []
+
+        if uuid is None:
+            uuid = str(uuid4())
 
         self.save_hyperparameters(ignore=["encoder"])
 
@@ -203,7 +208,6 @@ def train(
         lightning_model = PlContactEncoder.load_from_checkpoint(
             checkpoint_path, map_location=device
         )
-        breakpoint()
         metric = type(lightning_model.hparams.metric)(  # type: ignore
             margin=lightning_model.hparams.metric.margin,  # type: ignore
             threshold=args.threshold,

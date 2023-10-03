@@ -14,3 +14,7 @@ def main():
 
     yaml_args = yaml_to_namespace(args.yaml_path)
     train_classifier(yaml_args)
+
+
+if __name__ == "__main__":
+    main()
