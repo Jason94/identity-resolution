@@ -42,20 +42,23 @@ LIMIT = int(os.getenv("LIMIT", str(500_000)))
 
 
 def check_uuid(rs: Redshift, encoder_uuid: str):
-    existing_uuids: List[str] = rs.query(  # type: ignore
-        f"""
-            SELECT distinct encoder_uuid
-            FROM {OUTPUT_TABLE};
-        """
-    )["encoder_uuid"]
+    if rs.table_exists(OUTPUT_TABLE):
+        existing_uuids: List[str] = rs.query(  # type: ignore
+            f"""
+                SELECT distinct encoder_uuid
+                FROM {OUTPUT_TABLE};
+            """
+        )["encoder_uuid"]
 
-    if len(existing_uuids) > 1 or encoder_uuid not in existing_uuids:
-        logger.error(f"Detecting existing encoder model UUIDs: {existing_uuids}")
-        logger.error(
-            "Please clear all IDR results not calculated with the current model"
-            f" from {OUTPUT_TABLE}"
-        )
-        raise RuntimeError("Cannot use conflicting models for encoding.")
+        if len(existing_uuids) > 1 or (
+            encoder_uuid not in existing_uuids and len(existing_uuids) > 0
+        ):
+            logger.error(f"Detecting existing encoder model UUIDs: {existing_uuids}")
+            logger.error(
+                "Please clear all IDR results not calculated with the current model"
+                f" from {OUTPUT_TABLE}"
+            )
+            raise RuntimeError("Cannot use conflicting models for encoding.")
 
 
 def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) -> str:
