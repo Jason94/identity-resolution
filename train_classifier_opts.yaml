@@ -1,0 +1,18 @@
+field_names:
+  - name
+  - email
+  - phone
+  - state
+encoder_path: ""
+checkpoint_path: null
+training_data: "prepared_train_data.csv"
+eval_data: "prepared_val_data.csv"
+classification_threshold: 0.5
+batch_size: 128
+pre_pool_mlp_layers: 4
+pool_mlp_layers: 4
+learning_rate: 1.5e-05
+weight_decay: 0.0005
+num_epochs: 8
+p_dropout: 0.1
+version_name: ""
