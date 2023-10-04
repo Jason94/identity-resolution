@@ -41,6 +41,23 @@ OUTPUT_TABLE = SCHEMA + ".idr_out"
 LIMIT = int(os.getenv("LIMIT", str(500_000)))
 
 
+def check_uuid(rs: Redshift, encoder_uuid: str):
+    existing_uuids: List[str] = rs.query(  # type: ignore
+        f"""
+            SELECT distinct encoder_uuid
+            FROM {OUTPUT_TABLE};
+        """
+    )["encoder_uuid"]
+
+    if len(existing_uuids) > 1 or encoder_uuid not in existing_uuids:
+        logger.error(f"Detecting existing encoder model UUIDs: {existing_uuids}")
+        logger.error(
+            "Please clear all IDR results not calculated with the current model"
+            f" from {OUTPUT_TABLE}"
+        )
+        raise RuntimeError("Cannot use conflicting models for encoding.")
+
+
 def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) -> str:
     if rs.table_exists(output_table):
         logger.info("Output table detected.")
@@ -135,7 +152,9 @@ def main():
 
     pl_trainer = pl.Trainer(enable_progress_bar=False)
     pl_model = get_model(PlContactEncoder, os.environ["MODEL_URL"])
-    encoder_uuid = pl_model.hparams.uuid  # type: ignore
+    encoder_uuid: str = pl_model.hparams.uuid  # type: ignore
+
+    check_uuid(rs, encoder_uuid)
 
     logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(
