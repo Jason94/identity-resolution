@@ -135,6 +135,7 @@ def main():
 
     pl_trainer = pl.Trainer(enable_progress_bar=False)
     pl_model = get_model(PlContactEncoder, os.environ["MODEL_URL"])
+    encoder_uuid = pl_model.hparams.uuid  # type: ignore
 
     logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(
@@ -173,6 +174,8 @@ def main():
             *result_lists,
         ]
     )
+
+    uploads.add_column("encoder_uuid", encoder_uuid)
 
     logger.info("Uploading results.")
     logger.debug(uploads)
