@@ -19,8 +19,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from metric import Metric  # noqa:E402
 from train import PlContactEncoder  # noqa:E402
 from train_classifier import PlContactsClassifier  # noqa:E402
-from data import ContactDataModule  # noqa:E402
+from data import ContactDataModule  # noqa:E402 # type: ignore
 from utilities import transpose_dict_of_lists  # noqa:E402
+
+from algorithm.prepare_data import check_encoder_uuid  # noqa: E402
 
 if __name__ == "__main__":
     import importlib.util
@@ -252,6 +254,38 @@ def upload_duplicate_candidates(
         logger.info("No duplicates identified.")
 
 
+def check_candidate_uuids(
+    rs: Redshift,
+    classifier_uuid: str,
+    classifier_encoder_uuid: str,
+    encoder_uuid: str,
+    duplicates_table: str,
+):
+    if encoder_uuid != classifier_encoder_uuid:
+        logging.error(f"Encoder model submitted with uuid: {encoder_uuid}")
+        logging.error(
+            f"Classifier model submitted was trained with encoder uuid: {classifier_encoder_uuid}"
+        )
+        raise RuntimeError("Cannot use inconsistent classifier and encoder models")
+    if rs.table_exists(duplicates_table):
+        existing_uuids: List[str] = rs.query(  # type: ignore
+            f"""
+                SELECT distinct classifier_uuid
+                FROM {duplicates_table};
+            """
+        )["classifier_uuid"]
+
+        if len(existing_uuids) > 1 or (
+            classifier_uuid not in existing_uuids and len(existing_uuids) > 0
+        ):
+            logger.error(f"Detecting existing classifier model UUIDs: {existing_uuids}")
+            logger.error(
+                "Please clear all IDR results not calculated with the current model"
+                f" from {duplicates_table}"
+            )
+            raise RuntimeError("Cannot use conflicting models for classifying.")
+
+
 def generate_candidates(rs: Redshift, model: PlContactEncoder):
     if THRESHOLD is not None:
         model.hparams.metric.threshold = float(THRESHOLD)  # type: ignore
@@ -313,13 +347,9 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
     upload_duplicate_candidates(rs, duplicate_candidates)
 
 
-def evaluate_candidates(rs: Redshift, pl_encoder: PlContactEncoder):
-    classifier_model = get_model(
-        PlContactsClassifier,
-        CLASSIFIER_URL,
-        "classifier.pt",
-        encoder=pl_encoder.encoder,
-    )
+def evaluate_candidates(
+    rs: Redshift, pl_encoder: PlContactEncoder, classifier_model: PlContactsClassifier
+):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Found device {device}")
 
@@ -467,9 +497,25 @@ def main():
     init_rs_env()
     rs = Redshift()
     encoder = get_model(PlContactEncoder, ENCODER_URL)
+    encoder_uuid: str = encoder.hparams.uuid  # type: ignore
+    check_encoder_uuid(rs, encoder_uuid, SOURCE_TABLE)
 
     generate_candidates(rs, encoder)
-    evaluate_candidates(rs, encoder)
+
+    classifier_model = get_model(
+        PlContactsClassifier,
+        CLASSIFIER_URL,
+        "classifier.pt",
+        encoder=encoder.encoder,
+    )
+    classifier_encoder_uuid: str = classifier_model.hparams.encoder_uuid  # type: ignore
+    classifier_uuid: str = classifier_model.hparams.uuid  # type: ignore
+
+    check_candidate_uuids(
+        rs, classifier_uuid, classifier_encoder_uuid, encoder_uuid, DUP_OUTPUT_TABLE
+    )
+
+    evaluate_candidates(rs, encoder, classifier_model)
 
 
 if __name__ == "__main__":

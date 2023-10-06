@@ -13,7 +13,7 @@ from utils import init_rs_env, get_model
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from train import PlContactEncoder  # noqa:E402
-from data import ContactSingletonDataModule  # noqa:E402
+from data import ContactSingletonDataModule  # noqa:E402 # type: ignore
 
 if __name__ == "__main__":
     import importlib.util
@@ -41,12 +41,12 @@ OUTPUT_TABLE = SCHEMA + ".idr_out"
 LIMIT = int(os.getenv("LIMIT", str(500_000)))
 
 
-def check_uuid(rs: Redshift, encoder_uuid: str):
-    if rs.table_exists(OUTPUT_TABLE):
+def check_encoder_uuid(rs: Redshift, encoder_uuid: str, output_table: str):
+    if rs.table_exists(output_table):
         existing_uuids: List[str] = rs.query(  # type: ignore
             f"""
                 SELECT distinct encoder_uuid
-                FROM {OUTPUT_TABLE};
+                FROM {output_table};
             """
         )["encoder_uuid"]
 
@@ -56,7 +56,7 @@ def check_uuid(rs: Redshift, encoder_uuid: str):
             logger.error(f"Detecting existing encoder model UUIDs: {existing_uuids}")
             logger.error(
                 "Please clear all IDR results not calculated with the current model"
-                f" from {OUTPUT_TABLE}"
+                f" from {output_table}"
             )
             raise RuntimeError("Cannot use conflicting models for encoding.")
 
@@ -157,7 +157,7 @@ def main():
     pl_model = get_model(PlContactEncoder, os.environ["MODEL_URL"])
     encoder_uuid: str = pl_model.hparams.uuid  # type: ignore
 
-    check_uuid(rs, encoder_uuid)
+    check_encoder_uuid(rs, encoder_uuid, OUTPUT_TABLE)
 
     logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(
