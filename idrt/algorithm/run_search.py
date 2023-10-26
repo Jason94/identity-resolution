@@ -360,6 +360,7 @@ def evaluate_candidates(
             with a as (
                 select
                     idr_candidates.primary_key as pkey,
+                    pool,
                     class,
                     contact_timestamp,
                     name_tokens as name_tokens1,
@@ -377,6 +378,7 @@ def evaluate_candidates(
             ), b as (
                 select
                     idr_candidates.primary_key as pkey,
+                    pool,
                     class,
                     contact_timestamp,
                     name_tokens as name_tokens2,
@@ -394,6 +396,7 @@ def evaluate_candidates(
             )
             select
                 a.pkey as pkey1,
+                a.pool as pool1,
                 a.name_tokens1,
                 a.name_length1,
                 a.email_tokens1,
@@ -403,6 +406,7 @@ def evaluate_candidates(
                 a.state_tokens1,
                 a.state_length1,
                 b.pkey as pkey2,
+                b.pool as pool2,
                 b.name_tokens2,
                 b.name_length2,
                 b.email_tokens2,
@@ -469,6 +473,8 @@ def evaluate_candidates(
                 {
                     "pkey1": data["pkey1"],
                     "pkey2": data["pkey2"],
+                    "pool1": data["pool1"],
+                    "pool2": data["pool2"],
                     "classification_score": classification_score,
                 }
             )
@@ -481,6 +487,8 @@ def evaluate_candidates(
     for pair in all_evaluated_pairs:
         pair["pkey1"] = pair["pkey1"].item()
         pair["pkey2"] = pair["pkey2"].item()
+        pair["pool1"] = pair["pool1"]
+        pair["pool2"] = pair["pool2"]
         pair["classification_score"] = pair["classification_score"].item()
         pair["matches"] = pair["classification_score"] >= classification_threshold
 
