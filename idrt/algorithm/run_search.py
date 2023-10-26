@@ -22,7 +22,7 @@ from train_classifier import PlContactsClassifier  # noqa:E402
 from data import ContactDataModule  # noqa:E402 # type: ignore
 from utilities import transpose_dict_of_lists  # noqa:E402
 
-from algorithm.prepare_data import check_encoder_uuid  # noqa: E402
+from algorithm.utils import check_encoder_uuid  # noqa: E402
 
 if __name__ == "__main__":
     import importlib.util

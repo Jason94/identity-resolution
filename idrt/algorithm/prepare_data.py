@@ -8,7 +8,7 @@ import lightning.pytorch as pl
 from parsons.databases.redshift import Redshift
 from parsons import Table
 
-from utils import init_rs_env, get_model
+from utils import init_rs_env, get_model, check_encoder_uuid
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -39,26 +39,6 @@ SCHEMA = os.environ["OUTPUT_SCHEMA"]
 TOKENS_TABLE = SCHEMA + ".idr_tokens"
 OUTPUT_TABLE = SCHEMA + ".idr_out"
 LIMIT = int(os.getenv("LIMIT", str(500_000)))
-
-
-def check_encoder_uuid(rs: Redshift, encoder_uuid: str, output_table: str):
-    if rs.table_exists(output_table):
-        existing_uuids: List[str] = rs.query(  # type: ignore
-            f"""
-                SELECT distinct encoder_uuid
-                FROM {output_table};
-            """
-        )["encoder_uuid"]
-
-        if len(existing_uuids) > 1 or (
-            encoder_uuid not in existing_uuids and len(existing_uuids) > 0
-        ):
-            logger.error(f"Detecting existing encoder model UUIDs: {existing_uuids}")
-            logger.error(
-                "Please clear all IDR results not calculated with the current model"
-                f" from {output_table}"
-            )
-            raise RuntimeError("Cannot use conflicting models for encoding.")
 
 
 def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) -> str:

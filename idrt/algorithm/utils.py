@@ -1,10 +1,12 @@
 import os
 import sys
-from typing import Type, TypeVar
+from typing import Type, TypeVar, List
 import requests
 import torch
 import lightning.pytorch as pl
 import logging
+
+from parsons.databases.redshift import Redshift
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -68,3 +70,23 @@ def log_once(logger: logging.Logger, level: int, key: str, message: str):
     if key not in logged_keys:
         logged_keys.append(key)
         logger.log(level, message)
+
+
+def check_encoder_uuid(rs: Redshift, encoder_uuid: str, output_table: str):
+    if rs.table_exists(output_table):
+        existing_uuids: List[str] = rs.query(  # type: ignore
+            f"""
+                SELECT distinct encoder_uuid
+                FROM {output_table};
+            """
+        )["encoder_uuid"]
+
+        if len(existing_uuids) > 1 or (
+            encoder_uuid not in existing_uuids and len(existing_uuids) > 0
+        ):
+            logger.error(f"Detecting existing encoder model UUIDs: {existing_uuids}")
+            logger.error(
+                "Please clear all IDR results not calculated with the current model"
+                f" from {output_table}"
+            )
+            raise RuntimeError("Cannot use conflicting models for encoding.")
