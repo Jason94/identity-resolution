@@ -496,6 +496,9 @@ def evaluate_candidates(
     upload_data = Table(all_evaluated_pairs)
     upload_data.add_column("comparison_timestamp", datetime.now())
 
+    classifier_uuid: str = classifier_model.hparams.uuid  # type: ignore
+    upload_data.add_column("classifier_uuid", classifier_uuid)
+
     logger.debug(upload_data)
 
     rs.upsert(upload_data, DUP_OUTPUT_TABLE, primary_key=["pkey1", "pkey2"])
