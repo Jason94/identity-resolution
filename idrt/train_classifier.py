@@ -10,10 +10,20 @@ from argparse import Namespace
 from torchmetrics.classification import F1Score, Precision, Recall
 from uuid import uuid4
 
-from data import ContactDataModule, Field, lookup_field
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from idrt.data import ContactDataModule, Field, smart_parse_field
 from model import ContactEncoder
 from model_classifier import ContactsClassifier
-from model_cli import *
+from idrt.model_cli import (
+    make_data_args,
+    make_model_io_args,
+    make_training_args,
+    make_universal_args,
+)
 from train import PlContactEncoder
 
 logger = logging.getLogger(__name__)
@@ -29,7 +39,6 @@ def labels_to_probs(tensor: torch.Tensor) -> torch.Tensor:
 class PlContactsClassifier(pl.LightningModule):
     def __init__(
         self,
-        field_names: List[str],
         encoder: ContactEncoder,
         classification_threshold: float,
         encoder_uuid: Optional[str] = None,
@@ -79,8 +88,7 @@ class PlContactsClassifier(pl.LightningModule):
         )
 
     def fields(self) -> List[Field]:
-        field_names: List[str] = self.hparams.field_names  # type: ignore
-        return [lookup_field(f_name) for f_name in field_names]  # type: ignore
+        return self.encoder.fields
 
     def setup(self, stage: str) -> None:
         logger.info("Setting encoder to eval mode")
@@ -191,20 +199,24 @@ class PlContactsClassifier(pl.LightningModule):
 
 
 def train_classifier(args: Namespace):
-    data_module = ContactDataModule(
-        batch_size=args.batch_size,
-        return_eval_fields=True,
-        train_file=args.training_data,
-        val_file=args.eval_data,
-        fields=[lookup_field(f_name) for f_name in args.field_names],
-    )
-
     checkpoint_path: Optional[str] = args.checkpoint_path
 
     encoder_trainer = PlContactEncoder.load_from_checkpoint(args.encoder_path)
     encoder_uuid: str = encoder_trainer.hparams.uuid  # type: ignore
     encoder = encoder_trainer.encoder
     delattr(args, "encoder_path")
+
+    print("Found fields:")
+    for f in encoder_trainer.fields():
+        print(f"\t{f}")
+
+    data_module = ContactDataModule(
+        batch_size=args.batch_size,
+        return_eval_fields=True,
+        train_file=args.training_data,
+        val_file=args.eval_data,
+        fields=encoder_trainer.fields(),
+    )
 
     if checkpoint_path is not None:
         logger.info(f"Loading model from {checkpoint_path}")

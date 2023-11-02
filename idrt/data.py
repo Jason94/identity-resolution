@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from __future__ import annotations
+from dataclasses import dataclass, asdict
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from lightning.pytorch.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 import torch
@@ -11,6 +12,7 @@ import os
 import logging
 import string
 import sys
+import json
 
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,13 @@ class Field:
     subfield_labels: List[str]
     max_length: int
 
+    def to_string(self) -> str:
+        return json.dumps(asdict(self))
+
+    @classmethod
+    def from_string(cls, s: str) -> "Field":
+        return cls(**json.loads(s))
+
 
 CompositeNameField = Field(
     field="name",
@@ -69,7 +78,9 @@ PhoneField = Field(field="phone", subfield_labels=["phone"], max_length=10)
 
 StateField = Field(field="state", subfield_labels=["state"], max_length=2)
 
-ALL_FIELDS = [CompositeNameField, EmailField, PhoneField, StateField]
+ZipField = Field(field="zip", subfield_labels=["zip"], max_length=5)
+
+ALL_FIELDS = [CompositeNameField, EmailField, PhoneField, StateField, ZipField]
 
 
 def lookup_field(name: str) -> Field:
@@ -78,6 +89,14 @@ def lookup_field(name: str) -> Field:
             return f
 
     raise NotImplementedError(f"Unrecognized field {name}")
+
+
+def smart_parse_field(field: str) -> Field:
+    """Detect if the field is a serialized field or a field name, and return field object."""
+    if "{" in field:
+        return Field.from_string(field)
+    else:
+        return lookup_field(field)
 
 
 class ContactDataset(Dataset):
@@ -100,7 +119,8 @@ class ContactDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx: int):
-        """Return (list of tokens 1, list of lengths 1, list of tokens 2, list of lengths 2, labels) for each field idx.
+        """Return (list of tokens 1, list of lengths 1, list of tokens 2, list of lengths 2, labels)
+           for each field idx.
 
         The 1 and 2 record are in different tuple elements."""
         tokens1 = []
@@ -202,9 +222,6 @@ class ContactDataModule(pl.LightningDataModule):
                 padding_length = max_length - non_pad_length
                 tokens = [tokenizer[c] for c in full_text]
                 tokens.extend([pad_token] * padding_length)
-
-                # Convert to a list of character tokens
-                tokens = [tokenizer[c] for c in full_text]
 
                 data.extend([tokens, non_pad_length])
                 indices.extend([f"{field.field}_tokens{i}", f"{field.field}_length{i}"])
@@ -329,7 +346,7 @@ class ContactDataModule(pl.LightningDataModule):
                             0, field.max_length
                         )
 
-                # If we aren't keeping the text fields at all, or if we've already combined them, drop.
+                # If we aren't keeping the text fields, or if we've already combined them, drop.
                 if not self.preserve_text_fields or len(field.subfield_labels) > 1:
                     for i in ["1", "2"]:
                         df = df.drop(columns=[sf + i for sf in field.subfield_labels])
@@ -370,7 +387,8 @@ class ContactDataModule(pl.LightningDataModule):
             logger.info(f"Wrote prepared validation data to {self.val_file}")
         else:
             logger.info(
-                f"Loading existing training and validation data from {self.train_file} and {self.val_file}"
+                f"Loading existing training and validation data from {self.train_file}"
+                f" and {self.val_file}"
             )
 
     def _read_prepared_data(self, filepath: str, **dataset_args) -> ContactDataset:
@@ -597,7 +615,7 @@ class ContactSingletonDataModule(pl.LightningDataModule):
                         )
                     df[field.field] = df[field.field].str.slice(0, field.max_length)
 
-                # If we aren't keeping the text fields at all, or if we've already combined them, drop.
+                # If we aren't keeping the text fields, or if we've already combined them, drop.
                 if not self.return_record and (
                     not self.preserve_text_fields or len(field.subfield_labels) > 1
                 ):

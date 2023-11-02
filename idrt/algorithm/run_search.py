@@ -14,12 +14,14 @@ from parsons.databases.redshift import Redshift
 
 from utils import init_rs_env, get_model, log_once
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
-from metric import Metric  # noqa:E402
-from train import PlContactEncoder  # noqa:E402
-from train_classifier import PlContactsClassifier  # noqa:E402
-from data import ContactDataModule  # noqa:E402 # type: ignore
+from idrt.metric import Metric  # noqa:E402
+from idrt.train import PlContactEncoder  # noqa:E402
+from idrt.train_classifier import PlContactsClassifier  # noqa:E402
+from idrt.data import ContactDataModule  # noqa:E402 # type: ignore
 from utilities import transpose_dict_of_lists  # noqa:E402
 
 from algorithm.utils import check_encoder_uuid  # noqa: E402
@@ -355,6 +357,30 @@ def evaluate_candidates(
 
     classifier_model.to(device)
 
+    fields = pl_encoder.fields()
+
+    select_fields1 = []
+    select_fields2 = []
+    select_a = []
+    select_b = []
+    for f in fields:
+        select_fields1.append(f"{f.field}_tokens as {f.field}_tokens1")
+        select_fields1.append(f"{f.field}_length as {f.field}_length1")
+
+        select_fields2.append(f"{f.field}_tokens as {f.field}_tokens2")
+        select_fields2.append(f"{f.field}_length as {f.field}_length2")
+
+        select_a.append(f"a.{f.field}_tokens1")
+        select_a.append(f"a.{f.field}_length1")
+
+        select_b.append(f"b.{f.field}_tokens2")
+        select_b.append(f"b.{f.field}_length2")
+
+    select_fields1_statement = ",\n".join(select_fields1)
+    select_fields2_statement = ",\n".join(select_fields2)
+    select_a_statement = ",\n".join(select_a)
+    select_b_statement = ",\n".join(select_b)
+
     # TODO: Base this on the fields array in the classifier model
     query = f"""
             with a as (
@@ -363,14 +389,7 @@ def evaluate_candidates(
                     pool,
                     class,
                     contact_timestamp,
-                    name_tokens as name_tokens1,
-                    name_length as name_length1,
-                    email_tokens as email_tokens1,
-                    email_length as email_length1,
-                    phone_tokens as phone_tokens1,
-                    phone_length as phone_length1,
-                    state_tokens as state_tokens1,
-                    state_length as state_length1
+                    {select_fields1_statement}
                 from {DUP_CANDIDATE_TABLE}
                 join {TOKENS_TABLE} t
                     on t.primary_key = idr_candidates.primary_key
@@ -381,14 +400,7 @@ def evaluate_candidates(
                     pool,
                     class,
                     contact_timestamp,
-                    name_tokens as name_tokens2,
-                    name_length as name_length2,
-                    email_tokens as email_tokens2,
-                    email_length as email_length2,
-                    phone_tokens as phone_tokens2,
-                    phone_length as phone_length2,
-                    state_tokens as state_tokens2,
-                    state_length as state_length2
+                    {select_fields2_statement}
                 from {DUP_CANDIDATE_TABLE}
                 join {TOKENS_TABLE} t
                     on t.primary_key = idr_candidates.primary_key
@@ -397,24 +409,10 @@ def evaluate_candidates(
             select
                 a.pkey as pkey1,
                 a.pool as pool1,
-                a.name_tokens1,
-                a.name_length1,
-                a.email_tokens1,
-                a.email_length1,
-                a.phone_tokens1,
-                a.phone_length1,
-                a.state_tokens1,
-                a.state_length1,
+                {select_a_statement},
                 b.pkey as pkey2,
                 b.pool as pool2,
-                b.name_tokens2,
-                b.name_length2,
-                b.email_tokens2,
-                b.email_length2,
-                b.phone_tokens2,
-                b.phone_length2,
-                b.state_tokens2,
-                b.state_length2,
+                {select_b_statement},
                 1 as label
             from a
             join b

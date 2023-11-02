@@ -39,6 +39,8 @@ def main():
 
     print("Loading " + str(args.source_files))
 
+    # TODO: Add option for serialized JSON field string here. It's a pain to type into the console, but it's also the
+    #       only place left in the code that requires the field object to be hard-coded in data.py (I think).
     data_module = ContactDataModule(
         data_lists=args.source_files,
         prepared_file=args.prepared_data,

@@ -1,23 +1,24 @@
-field_names:
-  - name
-  - email
-  - phone
-  - state
+field_strings:
+  - '{"field": "name", "subfield_labels": ["first_name", "last_name"], "max_length": 50}'
+  - '{"field": "email", "subfield_labels": ["email"], "max_length": 35}'
+  - '{"field": "phone", "subfield_labels": ["phone"], "max_length": 10}'
+  - '{"field": "state", "subfield_labels": ["state"], "max_length": 2}'
+  - '{"field": "zip", "subfield_labels": ["zip"], "max_length": 5}'
 metric: "ContrastiveMetric"
 checkpoint_path: null
-training_data: "prepared_train_data.csv"
+training_data: "prepare_train_data.csv"
 eval_data: "prepared_val_data.csv"
-embedding_dim: 100
-n_heads_attn: 4
-attn_dim: 360
+embedding_dim: 50
+n_heads_attn: 2
+attn_dim: 120
 norm_eps: 1.0e-06
-output_mlp_layers: 6
-output_embedding_dim: 65
+output_mlp_layers: 2
+output_embedding_dim: 20
 threshold: 0.975
 batch_size: 128
 margin: 2.0
-learning_rate: 5.0e-07
+learning_rate: 5.5e-07
 weight_decay: 0.002
-num_epochs: 8
+num_epochs: 12
 p_dropout: 0.0
-version_name: ""
+version_name: "0_5_0_zip_encoder_1"

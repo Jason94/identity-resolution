@@ -5,14 +5,25 @@ import lightning.pytorch as pl
 from lightning.pytorch.callbacks import ModelCheckpoint, ModelSummary
 from sklearn.metrics import precision_score, recall_score, f1_score
 from argparse import Namespace
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger  # noqa:F401
 from lightning.pytorch.loggers.logger import Logger as PlLogger
 import logging
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from model import ContactEncoder
-from config import *
-from data import ContactDataModule, Field, lookup_field
-from model_cli import *
+
+from idrt.data import ContactDataModule, Field, smart_parse_field
+
+from idrt.model_cli import (
+    make_data_args,
+    make_model_args,
+    make_model_io_args,
+    make_training_args,
+    make_universal_args,
+)
 from embedding_logger import TensorBoardEmbeddingLogger
 from utilities import transpose_dict_of_lists, split_field_dict
 from metric import Metric
@@ -35,7 +46,7 @@ def convert_bool_tensor(tensor):
 class PlContactEncoder(pl.LightningModule):
     def __init__(
         self,
-        field_names: List[str],
+        field_strings: List[str],
         vocab_size: int,
         uuid: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
@@ -82,9 +93,13 @@ class PlContactEncoder(pl.LightningModule):
             torch.tensor([-1]),
         )
 
+        self._fields = None
+
     def fields(self) -> List[Field]:
-        field_names: List[str] = self.hparams.field_names  # type: ignore
-        return [lookup_field(f_name) for f_name in field_names]  # type: ignore
+        if self._fields is None:
+            field_strings: List[str] = self.hparams.field_strings  # type: ignore
+            self._fields = [smart_parse_field(field_str) for field_str in field_strings]
+        return self._fields
 
     def training_step(self, batch, batch_idx):
         metric: Optional[Metric] = self.hparams.metric  # type: ignore
@@ -194,9 +209,13 @@ def train(
         return_eval_fields=True,
         train_file=args.training_data,
         val_file=args.eval_data,
-        fields=[lookup_field(f_name) for f_name in args.field_names],
+        fields=[smart_parse_field(f_str) for f_str in args.field_strings],
     )
     args.vocab_size = len(data_module.vocabulary)
+
+    print("Found fields:")
+    for f in data_module.fields:
+        print(f"\t{f}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Found device {device}")
@@ -268,38 +287,38 @@ def train(
     )
 
 
-def margin_experiment(args: Namespace, data_module: ContactDataModule):
-    start = 1.5
-    end = 4.0
-    for margin in [start + x / 2 for x in range(0, int(end - start) * 2)]:
-        scenario_args = Namespace(**{**vars(args), "margin": margin})
+# def margin_experiment(args: Namespace, data_module: ContactDataModule):
+#     start = 1.5
+#     end = 4.0
+#     for margin in [start + x / 2 for x in range(0, int(end - start) * 2)]:
+#         scenario_args = Namespace(**{**vars(args), "margin": margin})
 
-        for i in range(0, 3):
-            print(f"Experiment {i}: margin={margin}")
-            lightning_logger = TensorBoardLogger(
-                save_dir="", version=f"margin_{margin:0.2f}__{i}"
-            )
-            lightning_logger.experiment.add_embedding()
-            # Load the data
-            train(scenario_args, data_module)
+#         for i in range(0, 3):
+#             print(f"Experiment {i}: margin={margin}")
+#             lightning_logger = TensorBoardLogger(
+#                 save_dir="", version=f"margin_{margin:0.2f}__{i}"
+#             )
+#             lightning_logger.experiment.add_embedding()
+#             # Load the data
+#             train(scenario_args, data_module)
 
 
-def embedding_experiment(args: Namespace, data_module: ContactDataModule):
-    start = 80
-    end = 120
-    step = 20
-    example_size = 4
-    hparam = "embedding_dim"
+# def embedding_experiment(args: Namespace, data_module: ContactDataModule):
+#     start = 80
+#     end = 120
+#     step = 20
+#     example_size = 4
+#     hparam = "embedding_dim"
 
-    for value in [start + x * step for x in range(0, int((end - start) / step + 1))]:
-        scenario_args = Namespace(**{**vars(args), hparam: int(value)})
+#     for value in [start + x * step for x in range(0, int((end - start) / step + 1))]:
+#         scenario_args = Namespace(**{**vars(args), hparam: int(value)})
 
-        for i in range(0, example_size):
-            print(f"Experiment {i}: {hparam}={value}")
-            lightning_logger = TensorBoardLogger(
-                save_dir="", version=f"exp_{hparam}_{value:0.5f}__{i}"
-            )
-            train(scenario_args, data_module, lightning_logger)  # type: ignore
+#         for i in range(0, example_size):
+#             print(f"Experiment {i}: {hparam}={value}")
+#             lightning_logger = TensorBoardLogger(
+#                 save_dir="", version=f"exp_{hparam}_{value:0.5f}__{i}"
+#             )
+#             train(scenario_args, data_module, lightning_logger)  # type: ignore
 
 
 if __name__ == "__main__":

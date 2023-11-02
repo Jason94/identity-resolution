@@ -36,11 +36,13 @@ def generate_synthetic_data(data):
         "email1": data["email"],
         "phone1": data["phone"],
         "state1": data["state"],
+        "zip1": data["zip"],
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": data["email"],
         "phone2": data["phone"],
         "state2": data["state"],
+        "zip2": data["zip"],
         "label": 1,
     }
     synthetic_data.append(record1)
@@ -52,11 +54,13 @@ def generate_synthetic_data(data):
         "email1": "",
         "phone1": "",
         "state1": "",
+        "zip1": "",
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": data["email"],
         "phone2": data["phone"],
         "state2": data["state"],
+        "zip2": data["zip"],
         "label": -1,
     }
     synthetic_data.append(record2)
@@ -68,11 +72,13 @@ def generate_synthetic_data(data):
         "email1": data["email"],
         "phone1": data["phone"],
         "state1": data["state"],
+        "zip1": data["zip"],
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": data["email"],
         "phone2": data["phone"],
         "state2": data["state"],
+        "zip2": data["zip"],
         "label": 1,
     }
     synthetic_data.append(record3)
@@ -88,11 +94,13 @@ def generate_synthetic_data(data):
         "email1": data["email"],
         "phone1": "",
         "state1": "",
+        "zip1": "",
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": data["email"],
         "phone2": data["phone"],
         "state2": data["state"],
+        "zip2": data["zip"],
         "label": 1,
     }
     synthetic_data.append(record4)
@@ -105,11 +113,13 @@ def generate_synthetic_data(data):
         "email1": "",
         "phone1": data["phone"],
         "state1": "",
+        "zip1": "",
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": data["email"],
         "phone2": data["phone"],
         "state2": data["state"],
+        "zip2": data["zip"],
         "label": 1,
     }
     synthetic_data.append(record5)
@@ -121,11 +131,13 @@ def generate_synthetic_data(data):
         "email1": "",
         "phone1": "",
         "state1": "",
+        "zip1": "",
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": "",
         "phone2": "",
         "state2": "",
+        "zip2": "",
         "label": -1,
     }
     synthetic_data.append(record6)
@@ -137,11 +149,13 @@ def generate_synthetic_data(data):
         "email1": "",
         "phone1": "",
         "state1": "",
+        "zip1": "",
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": "",
         "phone2": "",
         "state2": "",
+        "zip2": "",
         "label": -1,
     }
     synthetic_data.append(record7)
@@ -153,11 +167,13 @@ def generate_synthetic_data(data):
         "email1": data["email"],
         "phone1": "",
         "state1": data["state"],
+        "zip1": data["zip"],
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": data["email"],
         "phone2": "",
         "state2": data["state"],
+        "zip2": data["zip"],
         "label": 1,
     }
     synthetic_data.append(record8)
@@ -169,11 +185,13 @@ def generate_synthetic_data(data):
         "email1": data["email"],
         "phone1": "",
         "state1": data["state"],
+        "zip1": data["zip"],
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": data["email"],
         "phone2": "",
         "state2": data["state"],
+        "zip2": data["zip"],
         "label": 1,
     }
     synthetic_data.append(record9)
@@ -185,11 +203,13 @@ def generate_synthetic_data(data):
         "email1": "",
         "phone1": data["phone"],
         "state1": data["state"],
+        "zip1": data["zip"],
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": "",
         "phone2": data["phone"],
         "state2": data["state"],
+        "zip2": data["zip"],
         "label": 1,
     }
     synthetic_data.append(record10)
@@ -201,11 +221,13 @@ def generate_synthetic_data(data):
         "email1": "",
         "phone1": data["phone"],
         "state1": data["state"],
+        "zip1": data["zip"],
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": "",
         "phone2": data["phone"],
         "state2": data["state"],
+        "zip2": data["zip"],
         "label": 1,
     }
     synthetic_data.append(record11)
@@ -217,11 +239,13 @@ def generate_synthetic_data(data):
         "email1": "",
         "phone1": "",
         "state1": "",
+        "zip1": "",
         "first_name2": data["first_name"],
         "last_name2": data["last_name"],
         "email2": data["email"],
         "phone2": data["phone"],
         "state2": data["state"],
+        "zip2": data["zip"],
         "label": -1,
     }
     synthetic_data.append(record12)
@@ -247,6 +271,7 @@ def gather_data(n_contacts: int) -> List[dict]:
             LOWER(last_name) AS last_name,
             LOWER(email) AS email,
             LOWER(COALESCE(state, '')) as state,
+            LOWER(COALESCE(zip, '')) as zip,
             RIGHT(REGEXP_REPLACE(LOWER(COALESCE(phone, '')), '[^0-9]', ''), 10) as phone,
             ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rownum
         FROM data

@@ -10,10 +10,12 @@ from parsons import Table
 
 from utils import init_rs_env, get_model, check_encoder_uuid
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
-from train import PlContactEncoder  # noqa:E402
-from data import ContactSingletonDataModule  # noqa:E402 # type: ignore
+from idrt.train import PlContactEncoder  # noqa:E402
+from idrt.data import Field, ContactSingletonDataModule  # noqa:E402
 
 if __name__ == "__main__":
     import importlib.util
@@ -41,7 +43,16 @@ OUTPUT_TABLE = SCHEMA + ".idr_out"
 LIMIT = int(os.getenv("LIMIT", str(500_000)))
 
 
-def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) -> str:
+def load_data_conditionally(
+    rs: Redshift, load_query: str, output_table: str, fields: List[Field]
+) -> str:
+    subfields: List[str] = [
+        subfield for field in fields for subfield in field.subfield_labels
+    ]
+    subfield_selects: List[str] = [
+        f"LOWER(COALESCE(temp.{subfield}, '')) as {subfield}" for subfield in subfields
+    ]
+    subfield_select_clause: str = ",\n".join(subfield_selects)
     if rs.table_exists(output_table):
         logger.info("Output table detected.")
         temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
@@ -52,10 +63,7 @@ def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) ->
             SELECT
                 temp.primary_key,
                 temp.contact_timestamp,
-                LOWER(COALESCE(temp.first_name, '')) AS first_name,
-                LOWER(COALESCE(temp.last_name, '')) AS last_name,
-                LOWER(COALESCE(temp.email, '')) AS email,
-                LOWER(COALESCE(temp.state, '')) as state,
+                {subfield_select_clause},
                 RIGHT(REGEXP_REPLACE(LOWER(COALESCE(temp.phone, '')), '[^0-9]', ''), 10) as phone,
                 temp.pool
             FROM temp_load_data AS temp
@@ -74,19 +82,17 @@ def load_data_conditionally(rs: Redshift, load_query: str, output_table: str) ->
             SELECT
                 temp.primary_key,
                 temp.contact_timestamp,
-                LOWER(COALESCE(temp.first_name, '')) AS first_name,
-                LOWER(COALESCE(temp.last_name, '')) AS last_name,
-                LOWER(COALESCE(temp.email, '')) AS email,
-                LOWER(COALESCE(temp.state, '')) as state,
-                RIGHT(REGEXP_REPLACE(LOWER(COALESCE(temp.phone, '')), '[^0-9]', ''), 10) as phone,
+                {subfield_select_clause},
                 temp.pool
             FROM temp_load_data AS temp;
         """
     return complete_query
 
 
-def save_data(rs: Redshift) -> Table:
-    query = load_data_conditionally(rs, LOAD_DATA_QUERY.rstrip(" ;"), OUTPUT_TABLE)
+def save_data(rs: Redshift, fields: List[Field]) -> Table:
+    query = load_data_conditionally(
+        rs, LOAD_DATA_QUERY.rstrip(" ;"), OUTPUT_TABLE, fields
+    )
     logger.info(f"Executing: {query}")
     data = rs.query(query) or Table()
 
@@ -119,7 +125,19 @@ def main():
     init_rs_env()
     rs = Redshift()
 
-    save_data(rs)
+    pl_trainer = pl.Trainer(enable_progress_bar=False)
+    pl_model = get_model(PlContactEncoder, os.environ["MODEL_URL"])
+    encoder_uuid: str = pl_model.hparams.uuid  # type: ignore
+
+    check_encoder_uuid(rs, encoder_uuid, OUTPUT_TABLE)
+
+    fields = pl_model.fields()
+
+    logger.info(f"Using {len(fields)} fields:")
+    for f in fields:
+        logger.info(f"\t{f}")
+
+    save_data(rs, fields)
 
     pl_data = ContactSingletonDataModule(
         data_dir="",
@@ -132,12 +150,6 @@ def main():
     pl_data.prepare_data(overwrite=True)
 
     upload_prepared_data(rs, pl_data)
-
-    pl_trainer = pl.Trainer(enable_progress_bar=False)
-    pl_model = get_model(PlContactEncoder, os.environ["MODEL_URL"])
-    encoder_uuid: str = pl_model.hparams.uuid  # type: ignore
-
-    check_encoder_uuid(rs, encoder_uuid, OUTPUT_TABLE)
 
     logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(
