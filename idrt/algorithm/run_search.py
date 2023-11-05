@@ -499,7 +499,9 @@ def evaluate_candidates(
 
     logger.debug(upload_data)
 
-    rs.upsert(upload_data, DUP_OUTPUT_TABLE, primary_key=["pkey1", "pkey2"])
+    rs.upsert(
+        upload_data, DUP_OUTPUT_TABLE, primary_key=["pkey1", "pkey2"], vacuum=False
+    )
 
 
 def main():

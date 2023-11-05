@@ -118,7 +118,12 @@ def upload_prepared_data(rs: Redshift, pl_data: ContactSingletonDataModule):
     data = Table.from_csv(pl_data.prepared_file)
     logger.debug("Saved prepared data:")
     logger.debug(data)
-    rs.upsert(table_obj=data, target_table=TOKENS_TABLE, primary_key="primary_key")
+    rs.upsert(
+        table_obj=data,
+        target_table=TOKENS_TABLE,
+        primary_key="primary_key",
+        vacuum=False,
+    )
 
 
 def main():
