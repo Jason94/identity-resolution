@@ -1,7 +1,7 @@
-encoder_path: "C:\\Users\\Jason Walker\\Documents\\Programming\\workspace\\identity-resolution\\lightning_logs\\0_5_0_zip_encoder_1\\checkpoints\\epoch=09---val_loss=0.1921-val_f1=0.9496.ckpt"
+encoder_path: "C:\\Users\\Jason Walker\\Documents\\Programming\\workspace\\identity-resolution\\lightning_logs\\0_5_0__zip_feedback_4lr__encoder\\checkpoints\\last.ckpt"
 checkpoint_path: null
-training_data: "prepare_train_data.csv"
-eval_data: "prepared_val_data.csv"
+training_data: "hybrid_train.csv"
+eval_data: "hybrid_val.csv"
 classification_threshold: 0.5
 batch_size: 128
 pre_pool_mlp_layers: 2
@@ -10,4 +10,4 @@ learning_rate: 3.5e-05
 weight_decay: 0.0005
 num_epochs: 10
 p_dropout: 0.1
-version_name: "0_5_0_zip_encoder_1__classifier_1"
+version_name: "0_5_0__zip_feedback_4__classifier"

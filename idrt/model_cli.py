@@ -129,6 +129,13 @@ def make_evaluation_args(
             " of memory."
         ),
     )
+
+    parser.add_argument(
+        "--only_show_incorrect",
+        action="store_true",
+        help="Only show incorrect evaluations in the report.",
+    )
+
     return parser
 
 

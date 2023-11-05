@@ -13,7 +13,7 @@ from model_cli import *
 from data import ContactDataModule
 from train_classifier import PlContactsClassifier
 from utilities import transpose_dict_of_lists
-from report import create_html_report
+from report import create_html_report, ReportMode
 from train import PlContactEncoder
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,13 @@ class ReportLogger(Logger):
         pass
 
 
-def main(checkpoint_path: str, data_path: str, failed: bool, batch_size: int):
+def main(
+    checkpoint_path: str,
+    data_path: str,
+    failed: bool,
+    batch_size: int,
+    only_show_incorrect: bool,
+):
     report_filename = os.path.join(
         os.path.dirname(checkpoint_path), Path(checkpoint_path).stem + ".html"
     )
@@ -126,12 +132,14 @@ def main(checkpoint_path: str, data_path: str, failed: bool, batch_size: int):
     logger.info(f"F1 Score:\t{f1:0.6f}")
 
     create_html_report(
-        all_preds,
+        all_preds.astype(int),
         all_labels,
         all_probs,
         all_field_data,
         pl_model.hparams.version_name,  # type: ignore
         filename=report_filename,
+        only_show_incorrect=only_show_incorrect,
+        mode=ReportMode.Classifier,
     )
 
 
@@ -152,4 +160,10 @@ if __name__ == "__main__":
     if args.checkpoint_path is None:
         raise KeyError("Must specify model checkpoint.")
 
-    main(args.checkpoint_path, args.eval_data, args.failed, args.batch_size)
+    main(
+        args.checkpoint_path,
+        args.eval_data,
+        args.failed,
+        args.batch_size,
+        args.only_show_incorrect,
+    )

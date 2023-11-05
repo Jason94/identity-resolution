@@ -4,6 +4,7 @@ import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
 import base64
+from enum import Enum, auto
 from io import BytesIO
 
 from config import model_path
@@ -22,6 +23,21 @@ def embed_matplotlib_figure(fig):
     return f"<img src='data:image/png;base64,{encoded}'/>"
 
 
+class ReportMode(Enum):
+    Encoder = auto()
+    Classifier = auto()
+
+
+def plot_pie(ax, counts, labels, title):
+    if not any(counts):  # Checks if all counts are zero
+        ax.text(0.5, 0.5, "No Data", ha="center", va="center", fontsize=12)
+        ax.set_title(title)
+        ax.axis("off")  # No axes for a plot with no data
+    else:
+        ax.pie(counts, labels=labels, autopct="%1.1f%%")
+        ax.set_title(title)
+
+
 def create_html_report(
     all_preds,
     all_labels,
@@ -29,8 +45,14 @@ def create_html_report(
     report_df,
     title: str,
     filename: str = "report.html",
+    only_show_incorrect: bool = False,
+    mode: ReportMode = ReportMode.Encoder,
 ):
-    report_df["distance"] = all_dists
+    if mode == ReportMode.Encoder:
+        report_df["distance"] = all_dists
+    elif mode == ReportMode.Classifier:
+        report_df["duplicate_score"] = all_dists
+
     report_df["eval_duplicates"] = all_preds
     report_df["label_duplicates"] = all_labels
 
@@ -65,13 +87,22 @@ def create_html_report(
     duplicate_counts = [correct_counts[1], incorrect_counts[1]]
     distinct_counts = [correct_counts[-1], incorrect_counts[-1]]
 
-    axes[1, 0].pie(duplicate_counts, labels=["Correct", "Incorrect"], autopct="%1.1f%%")
-    axes[1, 0].set_title("Duplicates: Correct vs Incorrect Predictions")
+    plot_pie(
+        axes[1, 0],
+        duplicate_counts,
+        ["Correct", "Incorrect"],
+        "Duplicates: Correct vs Incorrect Predictions",
+    )
+    plot_pie(
+        axes[1, 1],
+        distinct_counts,
+        ["Correct", "Incorrect"],
+        "Distincts: Correct vs Incorrect Predictions",
+    )
 
-    axes[1, 1].pie(distinct_counts, labels=["Correct", "Incorrect"], autopct="%1.1f%%")
-    axes[1, 1].set_title("Distincts: Correct vs Incorrect Predictions")
+    if only_show_incorrect:
+        report_df = report_df.query("eval_duplicates != label_duplicates")
 
-    # Embed the plot as base64
     distributions_plot_base64 = embed_matplotlib_figure(fig)
 
     plt.close(fig)
@@ -187,5 +218,6 @@ if __name__ == "__main__":
         )
 
     print(
-        f"Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f}, Recall = {recall:.4f}, F1 = {f1:.4f}"
+        f"Eval Loss = {eval_loss:.4f}, Precision = {precision:.4f},"
+        f" Recall = {recall:.4f}, F1 = {f1:.4f}"
     )

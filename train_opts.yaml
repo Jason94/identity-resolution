@@ -6,8 +6,8 @@ field_strings:
   - '{"field": "zip", "subfield_labels": ["zip"], "max_length": 5}'
 metric: "ContrastiveMetric"
 checkpoint_path: null
-training_data: "prepare_train_data.csv"
-eval_data: "prepared_val_data.csv"
+training_data: "hybrid_train.csv"
+eval_data: "hybrid_val.csv"
 embedding_dim: 50
 n_heads_attn: 2
 attn_dim: 120
@@ -19,6 +19,6 @@ batch_size: 128
 margin: 2.0
 learning_rate: 5.5e-07
 weight_decay: 0.002
-num_epochs: 12
+num_epochs: 10
 p_dropout: 0.0
-version_name: "0_5_0_zip_encoder_1"
+version_name: "0_5_0__zip_feedback_4lr__encoder"
