@@ -31,7 +31,7 @@ if __name__ == "__main__":
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-LOAD_DATA_QUERY = os.environ["LOAD_DATA_QUERY"]
+DATA_TABLE = os.environ["DATA_TABLE"]
 
 DATA_PATH = "data.csv"
 
@@ -44,8 +44,16 @@ LIMIT = int(os.getenv("LIMIT", str(500_000)))
 
 
 def load_data_conditionally(
-    rs: Redshift, load_query: str, output_table: str, fields: List[Field]
+    rs: Redshift, data_table: str, output_table: str, fields: List[Field]
 ) -> str:
+    temp_table_query = f"""
+        CREATE TEMP TABLE temp_load_data AS (
+            SELECT *
+            FROM {data_table}
+            ORDER BY contact_timestamp ASC
+        );
+    """
+
     subfields: List[str] = [
         subfield for field in fields for subfield in field.subfield_labels
     ]
@@ -55,7 +63,6 @@ def load_data_conditionally(
     subfield_select_clause: str = ",\n".join(subfield_selects)
     if rs.table_exists(output_table):
         logger.info("Output table detected.")
-        temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
 
         complete_query = f"""
             {temp_table_query}
@@ -74,7 +81,6 @@ def load_data_conditionally(
         """
     else:
         logger.info("Output table does not exist.")
-        temp_table_query = f"CREATE TEMP TABLE temp_load_data AS ({load_query});"
 
         complete_query = f"""
             {temp_table_query}
@@ -90,9 +96,7 @@ def load_data_conditionally(
 
 
 def save_data(rs: Redshift, fields: List[Field]) -> Table:
-    query = load_data_conditionally(
-        rs, LOAD_DATA_QUERY.rstrip(" ;"), OUTPUT_TABLE, fields
-    )
+    query = load_data_conditionally(rs, DATA_TABLE, OUTPUT_TABLE, fields)
     logger.info(f"Executing: {query}")
     data = rs.query(query) or Table()
 
