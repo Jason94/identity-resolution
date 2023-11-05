@@ -71,7 +71,6 @@ def load_data_conditionally(
                 temp.primary_key,
                 temp.contact_timestamp,
                 {subfield_select_clause},
-                RIGHT(REGEXP_REPLACE(LOWER(COALESCE(temp.phone, '')), '[^0-9]', ''), 10) as phone,
                 temp.pool
             FROM temp_load_data AS temp
             LEFT JOIN {output_table} AS output
