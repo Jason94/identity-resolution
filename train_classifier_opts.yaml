@@ -1,4 +1,4 @@
-encoder_path: "C:\\Users\\Jason Walker\\Documents\\Programming\\workspace\\identity-resolution\\lightning_logs\\0_5_0__zip_feedback_4lr__encoder\\checkpoints\\last.ckpt"
+encoder_path: ""
 checkpoint_path: null
 training_data: "hybrid_train.csv"
 eval_data: "hybrid_val.csv"
@@ -10,4 +10,4 @@ learning_rate: 3.5e-05
 weight_decay: 0.0005
 num_epochs: 10
 p_dropout: 0.1
-version_name: "0_5_0__zip_feedback_4__classifier"
+version_name: ""

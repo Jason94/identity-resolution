@@ -21,4 +21,4 @@ learning_rate: 5.5e-07
 weight_decay: 0.002
 num_epochs: 10
 p_dropout: 0.0
-version_name: "0_5_0__zip_feedback_4lr__encoder"
+version_name: ""
