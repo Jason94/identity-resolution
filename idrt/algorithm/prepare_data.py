@@ -25,6 +25,9 @@ sys.path.append(
 from idrt.train import PlContactEncoder  # noqa:E402
 from idrt.data import Field, ContactSingletonDataModule  # noqa:E402
 
+from database_adapter import DatabaseAdapter
+from redshift_db_adapter import RedshiftDbAdapter
+
 if __name__ == "__main__":
     import importlib.util
 
@@ -52,7 +55,7 @@ LIMIT = int(os.getenv("LIMIT", str(500_000)))
 
 
 def load_data_conditionally(
-    rs: Redshift,
+    db: DatabaseAdapter,
     data_table: SQLTable,
     output_table: SQLTable,
     fields: List[Field],
@@ -88,7 +91,7 @@ def load_data_conditionally(
         .limit(LIMIT)
     )
 
-    if rs.table_exists(output_table.get_sql()):
+    if db.table_exists(output_table):
         logger.info("Output table detected.")
 
         load_temp_data = (
@@ -105,10 +108,10 @@ def load_data_conditionally(
     return combine_queries(temp_table_query, load_temp_data)
 
 
-def save_data(rs: Redshift, fields: List[Field]) -> Table:
-    query = load_data_conditionally(rs, DATA_TABLE, OUTPUT_TABLE, fields)
+def save_data(db: DatabaseAdapter, fields: List[Field]) -> Table:
+    query = load_data_conditionally(db, DATA_TABLE, OUTPUT_TABLE, fields)
     logger.info(f"Executing: {query}")
-    data = rs.query(query) or Table()
+    data = db.execute_query(query) or Table()
 
     if data.num_rows == 0:
         logger.info("No rows found. Exiting.")
@@ -127,28 +130,24 @@ def save_data(rs: Redshift, fields: List[Field]) -> Table:
     return data
 
 
-def upload_prepared_data(rs: Redshift, pl_data: ContactSingletonDataModule):
+def upload_prepared_data(db: DatabaseAdapter, pl_data: ContactSingletonDataModule):
     logger.info("Saving tokens")
     data = Table.from_csv(pl_data.prepared_file)
     logger.debug("Saved prepared data:")
     logger.debug(data)
-    rs.upsert(
-        table_obj=data,
-        target_table=TOKENS_TABLE.get_sql(),
-        primary_key="primary_key",
-        vacuum=False,
+    db.upsert(
+        TOKENS_TABLE,
+        data,
+        "primary_key",
     )
 
 
-def main():
-    init_rs_env()
-    rs = Redshift()
-
+def main(db: DatabaseAdapter):
     pl_trainer = pl.Trainer(enable_progress_bar=False)
     pl_model = get_model(PlContactEncoder, os.environ["MODEL_URL"])
     encoder_uuid: str = pl_model.hparams.uuid  # type: ignore
 
-    check_encoder_uuid(rs, encoder_uuid, OUTPUT_TABLE.get_sql())
+    check_encoder_uuid(db, encoder_uuid, OUTPUT_TABLE)
 
     fields = pl_model.fields()
 
@@ -156,7 +155,7 @@ def main():
     for f in fields:
         logger.info(f"\t{f}")
 
-    save_data(rs, fields)
+    save_data(db, fields)
 
     pl_data = ContactSingletonDataModule(
         data_dir="",
@@ -168,7 +167,7 @@ def main():
     logger.info("Preparing data.")
     pl_data.prepare_data(overwrite=True)
 
-    upload_prepared_data(rs, pl_data)
+    upload_prepared_data(db, pl_data)
 
     logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(
@@ -212,10 +211,14 @@ def main():
 
     logger.info("Uploading results.")
     logger.debug(uploads)
-    rs = Redshift()
-    rs.upsert(uploads, OUTPUT_TABLE.get_sql(), primary_key="primary_key", vacuum=False)
+
+    db.upsert(OUTPUT_TABLE, uploads, "primary_key")
 
 
 if __name__ == "__main__":
     logging.basicConfig()
-    main()
+
+    init_rs_env()
+    db = RedshiftDbAdapter(Redshift())
+
+    main(db)

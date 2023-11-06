@@ -21,13 +21,15 @@ sys.path.append(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
-from idrt.metric import Metric  # noqa:E402
-from idrt.train import PlContactEncoder  # noqa:E402
-from idrt.train_classifier import PlContactsClassifier  # noqa:E402
-from idrt.data import ContactDataModule, Field  # noqa:E402 # type: ignore
-from utilities import transpose_dict_of_lists  # noqa:E402
+from idrt.metric import Metric
+from idrt.train import PlContactEncoder
+from idrt.train_classifier import PlContactsClassifier
+from idrt.data import ContactDataModule, Field
+from utilities import transpose_dict_of_lists
 
-from algorithm.utils import check_encoder_uuid  # noqa: E402
+from algorithm.utils import check_encoder_uuid
+from algorithm.database_adapter import DatabaseAdapter
+from algorithm.redshift_db_adapter import RedshiftDbAdapter
 
 if __name__ == "__main__":
     import importlib.util
@@ -80,17 +82,19 @@ def determine_mode() -> Mode:
         return Mode.Pooled
 
 
-def load_raw_unpooled_data(rs: Redshift, source_table: SQLTable) -> Table:
+def load_raw_unpooled_data(db: DatabaseAdapter, source_table: SQLTable) -> Table:
     query = (
         Query.select(source_table.star)
         .from_(source_table)
         .orderby(source_table.primary_key, order=Order.asc)
     )
 
-    return rs.query(query.get_sql()) or Table()
+    return db.execute_query(query) or Table()
 
 
-def load_raw_pooled_data(rs: Redshift, source_table: SQLTable, pool: str) -> Table:
+def load_raw_pooled_data(
+    db: DatabaseAdapter, source_table: SQLTable, pool: str
+) -> Table:
     query = (
         Query.select(source_table.star)
         .from_(source_table)
@@ -98,7 +102,7 @@ def load_raw_pooled_data(rs: Redshift, source_table: SQLTable, pool: str) -> Tab
         .orderby(source_table.primary_key, order=Order.asc)
     )
 
-    return rs.query(query.get_sql()) or Table()
+    return db.execute_query(query) or Table()
 
 
 def shape_raw_data(
@@ -121,13 +125,13 @@ def shape_raw_data(
 
 def load_data(
     embedding_dim: int,
-    rs: Redshift,
+    db: DatabaseAdapter,
     pool: Optional[str] = None,
 ) -> Tuple[List[List[float]], Dict[int, int]]:
     if pool is not None:
-        raw_data = load_raw_pooled_data(rs, SOURCE_TABLE, pool)
+        raw_data = load_raw_pooled_data(db, SOURCE_TABLE, pool)
     else:
-        raw_data = load_raw_unpooled_data(rs, SOURCE_TABLE)
+        raw_data = load_raw_unpooled_data(db, SOURCE_TABLE)
 
     if raw_data is None:
         raise ConnectionError("Error retrieving data from the database.")
@@ -232,8 +236,9 @@ def find_duplicates(
 
 
 def upload_duplicate_candidates(
-    rs: Redshift,
+    db: DatabaseAdapter,
     candidates: Dict[Tuple[int, int], float],
+    candidates_table: SQLTable,
 ):
     logger.info("Preparing data for upload.")
     item_classes = []
@@ -256,13 +261,13 @@ def upload_duplicate_candidates(
     if upload_data.num_rows > 0:
         logger.info(f"Found {upload_data.num_rows} duplicate candidates.")
         logger.info("Uploading data.")
-        rs.copy(upload_data, DUP_CANDIDATE_TABLE.get_sql(), if_exists="drop")
+        db.bulk_upload(candidates_table, upload_data)
     else:
         logger.info("No duplicates identified.")
 
 
 def check_candidate_uuids(
-    rs: Redshift,
+    db: DatabaseAdapter,
     classifier_uuid: str,
     classifier_encoder_uuid: str,
     encoder_uuid: str,
@@ -274,14 +279,14 @@ def check_candidate_uuids(
             f"Classifier model submitted was trained with encoder uuid: {classifier_encoder_uuid}"
         )
         raise RuntimeError("Cannot use inconsistent classifier and encoder models")
-    if rs.table_exists(duplicates_table.get_sql()):
+    if db.table_exists(duplicates_table):
         query = (
             Query()
             .select(duplicates_table.classifier_uuid)
             .distinct()
             .from_(duplicates_table)
         )
-        existing_uuids: List[str] = rs.query(query.get_sql())["classifier_uuid"]  # type: ignore
+        existing_uuids: List[str] = db.execute_query(query)["classifier_uuid"]  # type: ignore
 
         if len(existing_uuids) > 1 or (
             classifier_uuid not in existing_uuids and len(existing_uuids) > 0
@@ -294,7 +299,9 @@ def check_candidate_uuids(
             raise RuntimeError("Cannot use conflicting models for classifying.")
 
 
-def generate_candidates(rs: Redshift, model: PlContactEncoder):
+def generate_candidates(
+    db: DatabaseAdapter, model: PlContactEncoder, candidates_table: SQLTable
+):
     if THRESHOLD is not None:
         model.hparams.metric.threshold = float(THRESHOLD)  # type: ignore
 
@@ -306,7 +313,7 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
 
     if execution_mode == Mode.Unpooled:
         logger.info("Loading data from source table.")
-        vectors, index_pkey_map = load_data(embedding_dim, rs)
+        vectors, index_pkey_map = load_data(embedding_dim, db)
 
         source_vectors = vectors
         search_vectors = vectors
@@ -317,7 +324,7 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
     else:  # execution_mode == Mode.Pooled or execution_mode == Mode.PooledReflective
         logger.info(f"Loading source data in pool {SOURCE_POOL}")
         source_vectors, source_index_pkey_map = load_data(
-            embedding_dim, rs, pool=SOURCE_POOL
+            embedding_dim, db, pool=SOURCE_POOL
         )
 
         if execution_mode == Mode.PooledReflective:
@@ -329,7 +336,7 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
         else:
             logger.info(f"Loading search data in pool {SEARCH_POOL}")
             search_vectors, search_index_pkey_map = load_data(
-                embedding_dim, rs, pool=SEARCH_POOL
+                embedding_dim, db, pool=SEARCH_POOL
             )
 
         if logger.level == logging.DEBUG:
@@ -352,7 +359,7 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
         logger.debug("Candidate pairs sample:")
         logger.debug(list(duplicate_candidates.keys())[0:15])
 
-    upload_duplicate_candidates(rs, duplicate_candidates)
+    upload_duplicate_candidates(db, duplicate_candidates, candidates_table)
 
 
 def load_candidates_data_query(
@@ -361,7 +368,7 @@ def load_candidates_data_query(
     candidate_table: SQLTable,
     dups_table: SQLTable,
     fields: List[Field],
-) -> str:
+) -> QueryBuilder:
     def field_subquery(class_index: int) -> QueryBuilder:
         selects = []
         n = class_index + 1
@@ -443,11 +450,13 @@ def load_candidates_data_query(
             )
         )
 
-    return load_query.get_sql()
+    return load_query
 
 
 def evaluate_candidates(
-    rs: Redshift, pl_encoder: PlContactEncoder, classifier_model: PlContactsClassifier
+    db: DatabaseAdapter,
+    pl_encoder: PlContactEncoder,
+    classifier_model: PlContactsClassifier,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Found device {device}")
@@ -457,7 +466,7 @@ def evaluate_candidates(
     fields = pl_encoder.fields()
 
     query = load_candidates_data_query(
-        rs.table_exists(DUP_CANDIDATE_TABLE.get_sql()),
+        db.table_exists(DUP_CANDIDATE_TABLE),
         TOKENS_TABLE,
         DUP_CANDIDATE_TABLE,
         DUP_OUTPUT_TABLE,
@@ -465,7 +474,7 @@ def evaluate_candidates(
     )
 
     logger.debug(f"Executing query: {query}")
-    data = rs.query(query) or Table()
+    data = db.execute_query(query) or Table()
     logger.info(f"Loaded {data.num_rows} new candidate pairs.")
 
     if data.num_rows == 0:
@@ -530,22 +539,19 @@ def evaluate_candidates(
 
     logger.debug(upload_data)
 
-    rs.upsert(
+    db.upsert(
+        DUP_OUTPUT_TABLE,
         upload_data,
-        DUP_OUTPUT_TABLE.get_sql(),
         primary_key=["pkey1", "pkey2"],
-        vacuum=False,
     )
 
 
-def main():
-    init_rs_env()
-    rs = Redshift()
+def main(db: DatabaseAdapter):
     encoder = get_model(PlContactEncoder, ENCODER_URL)
     encoder_uuid: str = encoder.hparams.uuid  # type: ignore
-    check_encoder_uuid(rs, encoder_uuid, SOURCE_TABLE)
+    check_encoder_uuid(db, encoder_uuid, SOURCE_TABLE)
 
-    generate_candidates(rs, encoder)
+    generate_candidates(db, encoder, DUP_CANDIDATE_TABLE)
 
     classifier_model = get_model(
         PlContactsClassifier,
@@ -557,12 +563,16 @@ def main():
     classifier_uuid: str = classifier_model.hparams.uuid  # type: ignore
 
     check_candidate_uuids(
-        rs, classifier_uuid, classifier_encoder_uuid, encoder_uuid, DUP_OUTPUT_TABLE
+        db, classifier_uuid, classifier_encoder_uuid, encoder_uuid, DUP_OUTPUT_TABLE
     )
 
-    evaluate_candidates(rs, encoder, classifier_model)
+    evaluate_candidates(db, encoder, classifier_model)
 
 
 if __name__ == "__main__":
     logging.basicConfig()
-    main()
+
+    init_rs_env()
+    db = RedshiftDbAdapter(Redshift())
+
+    main(db)
