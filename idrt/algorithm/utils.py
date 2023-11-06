@@ -6,6 +6,9 @@ import torch
 import lightning.pytorch as pl
 import logging
 
+from pypika import Table as SQLTable, Schema, Database
+from pypika.queries import QueryBuilder
+
 from parsons.databases.redshift import Redshift
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -90,3 +93,33 @@ def check_encoder_uuid(rs: Redshift, encoder_uuid: str, output_table: str):
                 f" from {output_table}"
             )
             raise RuntimeError("Cannot use conflicting models for encoding.")
+
+
+def table_from_full_path(path: str) -> SQLTable:
+    """Build a SQLTable from a full sql path.
+
+    The path must contain a tablename and may contain a schema and database.
+    """
+    parts = path.split(".")
+
+    if len(parts) == 3:
+        db = Database(parts[0])
+        schema = Schema(parts[1], parent=db)
+        return SQLTable(parts[2], schema=schema)
+    elif len(parts) == 2:
+        schema = Schema(parts[0])
+        return SQLTable(parts[1], schema=schema)
+    elif len(parts) == 1:
+        db = None
+        schema = None
+        return SQLTable(parts[0])
+    else:
+        raise RuntimeError(
+            f"SQL table '{path}' must contain a table name and optionall a schema and db."
+        )
+
+
+def combine_queries(*queries: QueryBuilder) -> str:
+    """Combine multiple PyPika queries into one query string."""
+    queries_sql = [q.get_sql() for q in queries]
+    return ";\n\n".join(queries_sql) + ";"

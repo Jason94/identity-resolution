@@ -1,3 +1,4 @@
 parsons
 python-dotenv
 annoy
+pypika

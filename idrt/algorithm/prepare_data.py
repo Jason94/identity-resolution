@@ -8,7 +8,15 @@ import lightning.pytorch as pl
 from parsons.databases.redshift import Redshift
 from parsons import Table
 
-from utils import init_rs_env, get_model, check_encoder_uuid
+from pypika import Table as SQLTable, Query, Order, functions as fn
+
+from utils import (
+    init_rs_env,
+    get_model,
+    check_encoder_uuid,
+    table_from_full_path,
+    combine_queries,
+)
 
 sys.path.append(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,67 +39,70 @@ if __name__ == "__main__":
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-DATA_TABLE = os.environ["DATA_TABLE"]
+DATA_TABLE = table_from_full_path(os.environ["DATA_TABLE"])
 
 DATA_PATH = "data.csv"
 
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
 
 SCHEMA = os.environ["OUTPUT_SCHEMA"]
-TOKENS_TABLE = SCHEMA + ".idr_tokens"
-OUTPUT_TABLE = SCHEMA + ".idr_out"
+TOKENS_TABLE = table_from_full_path(SCHEMA + ".idr_tokens")
+OUTPUT_TABLE = table_from_full_path(SCHEMA + ".idr_out")
 LIMIT = int(os.getenv("LIMIT", str(500_000)))
 
 
 def load_data_conditionally(
-    rs: Redshift, data_table: str, output_table: str, fields: List[Field]
+    rs: Redshift,
+    data_table: SQLTable,
+    output_table: SQLTable,
+    fields: List[Field],
 ) -> str:
-    temp_table_query = f"""
-        CREATE TEMP TABLE temp_load_data AS (
-            SELECT *
-            FROM {data_table}
-            ORDER BY contact_timestamp ASC
-        );
-    """
+    temp_table = SQLTable("temp_load_data")
+    temp_table_query = (
+        Query.create_table(temp_table)
+        .as_select(
+            Query.from_(data_table)
+            .select(data_table.star)
+            .orderby(data_table.contact_timestamp, order=Order.asc)
+        )
+        .temporary()
+    )
 
     subfields: List[str] = [
         subfield for field in fields for subfield in field.subfield_labels
     ]
-    subfield_selects: List[str] = [
-        f"LOWER(COALESCE(temp.{subfield}, '')) as {subfield}" for subfield in subfields
+    subfield_selects = [
+        fn.Lower(fn.Coalesce(temp_table.field(subfield), "")).as_(subfield)
+        for subfield in subfields
     ]
-    subfield_select_clause: str = ",\n".join(subfield_selects)
-    if rs.table_exists(output_table):
+
+    load_temp_data = (
+        Query.select(
+            temp_table.primary_key,
+            temp_table.contact_timestamp,
+            temp_table.pool,
+            *subfield_selects,
+        )
+        .from_(temp_table)
+        .orderby(temp_table.contact_timestamp, order=Order.asc)
+        .limit(LIMIT)
+    )
+
+    if rs.table_exists(output_table.get_sql()):
         logger.info("Output table detected.")
 
-        complete_query = f"""
-            {temp_table_query}
-
-            SELECT
-                temp.primary_key,
-                temp.contact_timestamp,
-                {subfield_select_clause},
-                temp.pool
-            FROM temp_load_data AS temp
-            LEFT JOIN {output_table} AS output
-            ON temp.primary_key = output.primary_key
-            WHERE output.primary_key IS NULL OR temp.contact_timestamp > output.contact_timestamp
-            LIMIT {LIMIT};
-        """
+        load_temp_data = (
+            load_temp_data.left_join(output_table)
+            .on(temp_table.primary_key == output_table.primary_key)
+            .where(
+                output_table.primary_key.isnull()
+                | (temp_table.contact_timestamp > output_table.contact_timestamp)
+            )
+        )
     else:
         logger.info("Output table does not exist.")
 
-        complete_query = f"""
-            {temp_table_query}
-
-            SELECT
-                temp.primary_key,
-                temp.contact_timestamp,
-                {subfield_select_clause},
-                temp.pool
-            FROM temp_load_data AS temp;
-        """
-    return complete_query
+    return combine_queries(temp_table_query, load_temp_data)
 
 
 def save_data(rs: Redshift, fields: List[Field]) -> Table:
@@ -103,7 +114,7 @@ def save_data(rs: Redshift, fields: List[Field]) -> Table:
         logger.info("No rows found. Exiting.")
         sys.exit()
     elif data.num_rows > LIMIT:
-        logger.info("{data.num_rows} greater than limit {LIMIT}.")
+        logger.info(f"Rows found: {data.num_rows} greater than limit {LIMIT}.")
         sys.exit()
 
     logger.info(f"Found {data.num_rows} rows.")
@@ -123,7 +134,7 @@ def upload_prepared_data(rs: Redshift, pl_data: ContactSingletonDataModule):
     logger.debug(data)
     rs.upsert(
         table_obj=data,
-        target_table=TOKENS_TABLE,
+        target_table=TOKENS_TABLE.get_sql(),
         primary_key="primary_key",
         vacuum=False,
     )
@@ -137,7 +148,7 @@ def main():
     pl_model = get_model(PlContactEncoder, os.environ["MODEL_URL"])
     encoder_uuid: str = pl_model.hparams.uuid  # type: ignore
 
-    check_encoder_uuid(rs, encoder_uuid, OUTPUT_TABLE)
+    check_encoder_uuid(rs, encoder_uuid, OUTPUT_TABLE.get_sql())
 
     fields = pl_model.fields()
 
@@ -202,7 +213,7 @@ def main():
     logger.info("Uploading results.")
     logger.debug(uploads)
     rs = Redshift()
-    rs.upsert(uploads, OUTPUT_TABLE, primary_key="primary_key", vacuum=False)
+    rs.upsert(uploads, OUTPUT_TABLE.get_sql(), primary_key="primary_key", vacuum=False)
 
 
 if __name__ == "__main__":
