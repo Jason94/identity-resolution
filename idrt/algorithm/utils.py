@@ -6,7 +6,7 @@ import torch
 import lightning.pytorch as pl
 import logging
 
-from pypika import Table as SQLTable, Schema, Database
+from pypika import Table as SQLTable, Schema, Database, Query
 from pypika.queries import QueryBuilder
 
 from parsons.databases.redshift import Redshift
@@ -75,14 +75,10 @@ def log_once(logger: logging.Logger, level: int, key: str, message: str):
         logger.log(level, message)
 
 
-def check_encoder_uuid(rs: Redshift, encoder_uuid: str, output_table: str):
-    if rs.table_exists(output_table):
-        existing_uuids: List[str] = rs.query(  # type: ignore
-            f"""
-                SELECT distinct encoder_uuid
-                FROM {output_table};
-            """
-        )["encoder_uuid"]
+def check_encoder_uuid(rs: Redshift, encoder_uuid: str, output_table: SQLTable):
+    if rs.table_exists(output_table.get_sql()):
+        query = Query.select(output_table.encoder_uuid).distinct().from_(output_table)
+        existing_uuids: List[str] = rs.query(query.get_sql())["encoder_uuid"]  # type: ignore
 
         if len(existing_uuids) > 1 or (
             encoder_uuid not in existing_uuids and len(existing_uuids) > 0

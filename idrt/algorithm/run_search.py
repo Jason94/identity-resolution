@@ -8,11 +8,14 @@ import torch
 import lightning.pytorch as pl
 from datetime import datetime
 from enum import Enum, auto
+from pypika import Table as SQLTable, Query, Order, AliasedQuery
+from pypika.queries import QueryBuilder
+from pypika.terms import LiteralValue
 
 from parsons import Table
 from parsons.databases.redshift import Redshift
 
-from utils import init_rs_env, get_model, log_once
+from utils import init_rs_env, get_model, log_once, table_from_full_path
 
 sys.path.append(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -21,7 +24,7 @@ sys.path.append(
 from idrt.metric import Metric  # noqa:E402
 from idrt.train import PlContactEncoder  # noqa:E402
 from idrt.train_classifier import PlContactsClassifier  # noqa:E402
-from idrt.data import ContactDataModule  # noqa:E402 # type: ignore
+from idrt.data import ContactDataModule, Field  # noqa:E402 # type: ignore
 from utilities import transpose_dict_of_lists  # noqa:E402
 
 from algorithm.utils import check_encoder_uuid  # noqa: E402
@@ -39,10 +42,10 @@ if __name__ == "__main__":
         )
 
 SCHEMA = os.environ["OUTPUT_SCHEMA"]
-SOURCE_TABLE = SCHEMA + ".idr_out"
-TOKENS_TABLE = SCHEMA + ".idr_tokens"
-DUP_CANDIDATE_TABLE = SCHEMA + ".idr_candidates"
-DUP_OUTPUT_TABLE = SCHEMA + ".idr_dups"
+SOURCE_TABLE = table_from_full_path(SCHEMA + ".idr_out")
+TOKENS_TABLE = table_from_full_path(SCHEMA + ".idr_tokens")
+DUP_CANDIDATE_TABLE = table_from_full_path(SCHEMA + ".idr_candidates")
+DUP_OUTPUT_TABLE = table_from_full_path(SCHEMA + ".idr_dups")
 
 THRESHOLD = os.getenv("THRESHOLD")
 CLASSIFIER_THRESHOLD = os.getenv("CLASSIFIER_THRESHOLD")
@@ -77,23 +80,25 @@ def determine_mode() -> Mode:
         return Mode.Pooled
 
 
-def load_raw_unpooled_data(rs: Redshift) -> Table:
-    return rs.query(f"SELECT * FROM {SOURCE_TABLE} ORDER BY primary_key;") or Table()
-
-
-def load_raw_pooled_data(rs: Redshift, pool: str) -> Table:
-    return (
-        rs.query(
-            f"""
-            SELECT *
-            FROM {SOURCE_TABLE}
-            WHERE pool = %s
-            ORDER BY primary_key;
-            """,
-            [pool],
-        )
-        or Table()
+def load_raw_unpooled_data(rs: Redshift, source_table: SQLTable) -> Table:
+    query = (
+        Query.select(source_table.star)
+        .from_(source_table)
+        .orderby(source_table.primary_key, order=Order.asc)
     )
+
+    return rs.query(query.get_sql()) or Table()
+
+
+def load_raw_pooled_data(rs: Redshift, source_table: SQLTable, pool: str) -> Table:
+    query = (
+        Query.select(source_table.star)
+        .from_(source_table)
+        .where(source_table.pool == pool)
+        .orderby(source_table.primary_key, order=Order.asc)
+    )
+
+    return rs.query(query.get_sql()) or Table()
 
 
 def shape_raw_data(
@@ -120,9 +125,9 @@ def load_data(
     pool: Optional[str] = None,
 ) -> Tuple[List[List[float]], Dict[int, int]]:
     if pool is not None:
-        raw_data = load_raw_pooled_data(rs, pool)
+        raw_data = load_raw_pooled_data(rs, SOURCE_TABLE, pool)
     else:
-        raw_data = load_raw_unpooled_data(rs)
+        raw_data = load_raw_unpooled_data(rs, SOURCE_TABLE)
 
     if raw_data is None:
         raise ConnectionError("Error retrieving data from the database.")
@@ -251,7 +256,7 @@ def upload_duplicate_candidates(
     if upload_data.num_rows > 0:
         logger.info(f"Found {upload_data.num_rows} duplicate candidates.")
         logger.info("Uploading data.")
-        rs.copy(upload_data, DUP_CANDIDATE_TABLE, if_exists="drop")
+        rs.copy(upload_data, DUP_CANDIDATE_TABLE.get_sql(), if_exists="drop")
     else:
         logger.info("No duplicates identified.")
 
@@ -261,7 +266,7 @@ def check_candidate_uuids(
     classifier_uuid: str,
     classifier_encoder_uuid: str,
     encoder_uuid: str,
-    duplicates_table: str,
+    duplicates_table: SQLTable,
 ):
     if encoder_uuid != classifier_encoder_uuid:
         logging.error(f"Encoder model submitted with uuid: {encoder_uuid}")
@@ -269,13 +274,14 @@ def check_candidate_uuids(
             f"Classifier model submitted was trained with encoder uuid: {classifier_encoder_uuid}"
         )
         raise RuntimeError("Cannot use inconsistent classifier and encoder models")
-    if rs.table_exists(duplicates_table):
-        existing_uuids: List[str] = rs.query(  # type: ignore
-            f"""
-                SELECT distinct classifier_uuid
-                FROM {duplicates_table};
-            """
-        )["classifier_uuid"]
+    if rs.table_exists(duplicates_table.get_sql()):
+        query = (
+            Query()
+            .select(duplicates_table.classifier_uuid)
+            .distinct()
+            .from_(duplicates_table)
+        )
+        existing_uuids: List[str] = rs.query(query.get_sql())["classifier_uuid"]  # type: ignore
 
         if len(existing_uuids) > 1 or (
             classifier_uuid not in existing_uuids and len(existing_uuids) > 0
@@ -283,7 +289,7 @@ def check_candidate_uuids(
             logger.error(f"Detecting existing classifier model UUIDs: {existing_uuids}")
             logger.error(
                 "Please clear all IDR results not calculated with the current model"
-                f" from {duplicates_table}"
+                f" from {duplicates_table.get_sql()}"
             )
             raise RuntimeError("Cannot use conflicting models for classifying.")
 
@@ -349,6 +355,97 @@ def generate_candidates(rs: Redshift, model: PlContactEncoder):
     upload_duplicate_candidates(rs, duplicate_candidates)
 
 
+def load_candidates_data_query(
+    exists: bool,
+    tokens_table: SQLTable,
+    candidate_table: SQLTable,
+    dups_table: SQLTable,
+    fields: List[Field],
+) -> str:
+    def field_subquery(class_index: int) -> QueryBuilder:
+        selects = []
+        n = class_index + 1
+
+        for f in fields:
+            selects.append(
+                tokens_table.field(f"{f.field}_tokens").as_(f"{f.field}_tokens{n}")
+            )
+            selects.append(
+                tokens_table.field(f"{f.field}_length").as_(f"{f.field}_length{n}")
+            )
+
+        return (
+            Query.select(
+                candidate_table.primary_key,
+                tokens_table.pool,
+                candidate_table.field("class"),
+                tokens_table.contact_timestamp,
+                *selects,
+            )
+            .from_(candidate_table)
+            .join(tokens_table)
+            .on(tokens_table.primary_key == candidate_table.primary_key)
+            .where(candidate_table.class_index == class_index)
+        )
+
+    def field_selects(tbl: AliasedQuery, n: int) -> List[QueryBuilder]:
+        selects = []
+
+        for f in fields:
+            selects.append(tbl.field(f"{f.field}_tokens{n}"))
+            selects.append(tbl.field(f"{f.field}_length{n}"))
+
+        return selects
+
+    left_candidates = field_subquery(0)
+    left_tbl = AliasedQuery("left_candidates")
+    right_candidates = field_subquery(1)
+    right_tbl = AliasedQuery("right_candidates")
+
+    load_query = (
+        Query.with_(left_candidates, left_tbl.alias)
+        .with_(right_candidates, right_tbl.alias)
+        .select(
+            left_tbl.primary_key.as_("pkey1"),
+            left_tbl.pool.as_("pool1"),
+            *field_selects(left_tbl, 1),
+            right_tbl.primary_key.as_("pkey2"),
+            right_tbl.pool.as_("pool2"),
+            *field_selects(right_tbl, 2),
+            LiteralValue(1).as_("label"),
+        )
+        .from_(left_tbl)
+        .join(right_tbl)
+        .on(left_tbl.field("class") == right_tbl.field("class"))
+        .orderby(left_tbl.pool, order=Order.asc)
+        .orderby(right_tbl.pool, order=Order.asc)
+        .orderby(left_tbl.primary_key, order=Order.asc)
+        .orderby(right_tbl.primary_key, order=Order.asc)
+    )
+
+    if exists:
+        load_query = (
+            load_query.left_join(dups_table)
+            .on(
+                (
+                    (dups_table.pkey1 == left_tbl.primary_key)
+                    & (dups_table.pkey2 == right_tbl.primary_key)
+                )
+                | (
+                    (dups_table.pkey1 == right_tbl.primary_key)
+                    & (dups_table.pkey2 == left_tbl.primary_key)
+                )
+            )
+            .where(
+                dups_table.pkey1.isnull()
+                | (dups_table.comparison_timestamp < left_tbl.contact_timestamp)
+                | (dups_table.comparison_timestamp < right_tbl.contact_timestamp)
+            )
+        )
+
+    return load_query.get_sql()
+
+
 def evaluate_candidates(
     rs: Redshift, pl_encoder: PlContactEncoder, classifier_model: PlContactsClassifier
 ):
@@ -359,79 +456,13 @@ def evaluate_candidates(
 
     fields = pl_encoder.fields()
 
-    select_fields1 = []
-    select_fields2 = []
-    select_a = []
-    select_b = []
-    for f in fields:
-        select_fields1.append(f"{f.field}_tokens as {f.field}_tokens1")
-        select_fields1.append(f"{f.field}_length as {f.field}_length1")
-
-        select_fields2.append(f"{f.field}_tokens as {f.field}_tokens2")
-        select_fields2.append(f"{f.field}_length as {f.field}_length2")
-
-        select_a.append(f"a.{f.field}_tokens1")
-        select_a.append(f"a.{f.field}_length1")
-
-        select_b.append(f"b.{f.field}_tokens2")
-        select_b.append(f"b.{f.field}_length2")
-
-    select_fields1_statement = ",\n".join(select_fields1)
-    select_fields2_statement = ",\n".join(select_fields2)
-    select_a_statement = ",\n".join(select_a)
-    select_b_statement = ",\n".join(select_b)
-
-    # TODO: Base this on the fields array in the classifier model
-    query = f"""
-            with a as (
-                select
-                    idr_candidates.primary_key as pkey,
-                    pool,
-                    class,
-                    contact_timestamp,
-                    {select_fields1_statement}
-                from {DUP_CANDIDATE_TABLE}
-                join {TOKENS_TABLE} t
-                    on t.primary_key = idr_candidates.primary_key
-                where class_index = 0
-            ), b as (
-                select
-                    idr_candidates.primary_key as pkey,
-                    pool,
-                    class,
-                    contact_timestamp,
-                    {select_fields2_statement}
-                from {DUP_CANDIDATE_TABLE}
-                join {TOKENS_TABLE} t
-                    on t.primary_key = idr_candidates.primary_key
-                where class_index = 1
-            )
-            select
-                a.pkey as pkey1,
-                a.pool as pool1,
-                {select_a_statement},
-                b.pkey as pkey2,
-                b.pool as pool2,
-                {select_b_statement},
-                1 as label
-            from a
-            join b
-                on a.class = b.class
-            """
-    if rs.table_exists(DUP_OUTPUT_TABLE):
-        query += f"""
-            left join {DUP_OUTPUT_TABLE} dups
-                on (
-                    dups.pkey1 = a.pkey
-                    and dups.pkey2 = b.pkey
-                ) or (
-                    dups.pkey1 = b.pkey
-                    and dups.pkey2 = a.pkey
-                )
-            where dups.pkey1 is null
-                or dups.comparison_timestamp < a.contact_timestamp
-                or dups.comparison_timestamp < b.contact_timestamp
-        """
+    query = load_candidates_data_query(
+        rs.table_exists(DUP_CANDIDATE_TABLE.get_sql()),
+        TOKENS_TABLE,
+        DUP_CANDIDATE_TABLE,
+        DUP_OUTPUT_TABLE,
+        fields,
+    )
 
     logger.debug(f"Executing query: {query}")
     data = rs.query(query) or Table()
@@ -500,7 +531,10 @@ def evaluate_candidates(
     logger.debug(upload_data)
 
     rs.upsert(
-        upload_data, DUP_OUTPUT_TABLE, primary_key=["pkey1", "pkey2"], vacuum=False
+        upload_data,
+        DUP_OUTPUT_TABLE.get_sql(),
+        primary_key=["pkey1", "pkey2"],
+        vacuum=False,
     )
 
 
