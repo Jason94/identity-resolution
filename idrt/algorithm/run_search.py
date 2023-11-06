@@ -31,36 +31,6 @@ from algorithm.utils import check_encoder_uuid
 from algorithm.database_adapter import DatabaseAdapter
 from algorithm.redshift_db_adapter import RedshiftDbAdapter
 
-if __name__ == "__main__":
-    import importlib.util
-
-    dotenv_package = importlib.util.find_spec("dotenv")
-    if dotenv_package is not None:
-        print("Loading dotenv")
-        import dotenv
-
-        dotenv.load_dotenv(
-            override=True, dotenv_path=os.path.join(os.path.dirname(__file__), ".env")
-        )
-
-SCHEMA = os.environ["OUTPUT_SCHEMA"]
-SOURCE_TABLE = table_from_full_path(SCHEMA + ".idr_out")
-TOKENS_TABLE = table_from_full_path(SCHEMA + ".idr_tokens")
-DUP_CANDIDATE_TABLE = table_from_full_path(SCHEMA + ".idr_candidates")
-DUP_OUTPUT_TABLE = table_from_full_path(SCHEMA + ".idr_dups")
-
-THRESHOLD = os.getenv("THRESHOLD")
-CLASSIFIER_THRESHOLD = os.getenv("CLASSIFIER_THRESHOLD")
-N_CLOSEST = int(os.getenv("N_CLOSEST", 2))
-N_TREES = int(os.getenv("N_TREES", 10))
-SEARCH_K = int(os.getenv("SEARCH_K", -1))
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
-
-SEARCH_POOL = os.getenv("SEARCH_POOL")
-SOURCE_POOL = os.getenv("SOURCE_POOL")
-
-ENCODER_URL = os.environ["MODEL_URL"]
-CLASSIFIER_URL = os.environ["CLASSIFIER_URL"]
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -73,10 +43,10 @@ class Mode(Enum):
     Unpooled = auto()
 
 
-def determine_mode() -> Mode:
-    if SEARCH_POOL is None and SOURCE_POOL is None:
+def determine_mode(search_pool: Optional[str], source_pool: Optional[str]) -> Mode:
+    if search_pool is None and source_pool is None:
         return Mode.Unpooled
-    elif SEARCH_POOL == SOURCE_POOL:
+    elif search_pool == source_pool:
         return Mode.PooledReflective
     else:
         return Mode.Pooled
@@ -126,12 +96,13 @@ def shape_raw_data(
 def load_data(
     embedding_dim: int,
     db: DatabaseAdapter,
+    source_table: SQLTable,
     pool: Optional[str] = None,
 ) -> Tuple[List[List[float]], Dict[int, int]]:
     if pool is not None:
-        raw_data = load_raw_pooled_data(db, SOURCE_TABLE, pool)
+        raw_data = load_raw_pooled_data(db, source_table, pool)
     else:
-        raw_data = load_raw_unpooled_data(db, SOURCE_TABLE)
+        raw_data = load_raw_unpooled_data(db, source_table)
 
     if raw_data is None:
         raise ConnectionError("Error retrieving data from the database.")
@@ -147,6 +118,9 @@ def find_duplicates(
     search_index_pkey_map: Dict[int, int],
     source_index_pkey_map: Dict[int, int],
     metric: Metric,
+    n_trees: int,
+    n_closest: int,
+    search_k: int,
     mode: Mode,
 ) -> Dict[Tuple[int, int], float]:
     """Find duplicate candidates
@@ -167,7 +141,7 @@ def find_duplicates(
         t.add_item(i, search_vectors[i])
 
     logger.info("Building vector tree")
-    t.build(N_TREES)
+    t.build(n_trees)
 
     logger.info(
         f"Searching for duplicates with neighborhood threshold {metric.threshold:0.4f}"
@@ -177,7 +151,7 @@ def find_duplicates(
         source_vector = source_vectors[i]
 
         nbrs, distances = t.get_nns_by_vector(
-            source_vector, N_CLOSEST + 1, search_k=SEARCH_K, include_distances=True
+            source_vector, n_closest + 1, search_k=search_k, include_distances=True
         )
 
         if mode == Mode.Unpooled or Mode.PooledReflective:
@@ -300,20 +274,29 @@ def check_candidate_uuids(
 
 
 def generate_candidates(
-    db: DatabaseAdapter, model: PlContactEncoder, candidates_table: SQLTable
+    db: DatabaseAdapter,
+    model: PlContactEncoder,
+    candidates_table: SQLTable,
+    source_table: SQLTable,
+    threshold: Optional[float],
+    execution_mode: Mode,
+    source_pool: Optional[str],
+    search_pool: Optional[str],
+    n_trees: int,
+    n_closest: int,
+    search_k: int,
 ):
-    if THRESHOLD is not None:
-        model.hparams.metric.threshold = float(THRESHOLD)  # type: ignore
+    if threshold is not None:
+        model.hparams.metric.threshold = float(threshold)  # type: ignore
 
     metric: Metric = model.hparams.metric  # type: ignore
     embedding_dim: int = model.hparams.output_embedding_dim  # type: ignore
 
-    execution_mode = determine_mode()
     logger.debug(f"Execution mode: {execution_mode}")
 
     if execution_mode == Mode.Unpooled:
         logger.info("Loading data from source table.")
-        vectors, index_pkey_map = load_data(embedding_dim, db)
+        vectors, index_pkey_map = load_data(embedding_dim, db, source_table)
 
         source_vectors = vectors
         search_vectors = vectors
@@ -322,21 +305,21 @@ def generate_candidates(
         search_index_pkey_map = index_pkey_map
 
     else:  # execution_mode == Mode.Pooled or execution_mode == Mode.PooledReflective
-        logger.info(f"Loading source data in pool {SOURCE_POOL}")
+        logger.info(f"Loading source data in pool {source_pool}")
         source_vectors, source_index_pkey_map = load_data(
-            embedding_dim, db, pool=SOURCE_POOL
+            embedding_dim, db, source_table, pool=source_pool
         )
 
         if execution_mode == Mode.PooledReflective:
-            logger.info(f"Using source pool '{SOURCE_POOL}' as search pool.")
+            logger.info(f"Using source pool '{source_pool}' as search pool.")
             search_vectors, search_index_pkey_map = (
                 source_vectors,
                 source_index_pkey_map,
             )
         else:
-            logger.info(f"Loading search data in pool {SEARCH_POOL}")
+            logger.info(f"Loading search data in pool {search_pool}")
             search_vectors, search_index_pkey_map = load_data(
-                embedding_dim, db, pool=SEARCH_POOL
+                embedding_dim, db, source_table, pool=search_pool
             )
 
         if logger.level == logging.DEBUG:
@@ -352,6 +335,9 @@ def generate_candidates(
         source_index_pkey_map=source_index_pkey_map,
         search_index_pkey_map=search_index_pkey_map,
         metric=metric,
+        n_trees=n_trees,
+        n_closest=n_closest,
+        search_k=search_k,
         mode=execution_mode,
     )
 
@@ -457,6 +443,11 @@ def evaluate_candidates(
     db: DatabaseAdapter,
     pl_encoder: PlContactEncoder,
     classifier_model: PlContactsClassifier,
+    dup_candidate_table: SQLTable,
+    tokens_table: SQLTable,
+    dup_output_table: SQLTable,
+    batch_size: int,
+    classifier_threshold: Optional[float],
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Found device {device}")
@@ -466,10 +457,10 @@ def evaluate_candidates(
     fields = pl_encoder.fields()
 
     query = load_candidates_data_query(
-        db.table_exists(DUP_CANDIDATE_TABLE),
-        TOKENS_TABLE,
-        DUP_CANDIDATE_TABLE,
-        DUP_OUTPUT_TABLE,
+        db.table_exists(dup_candidate_table),
+        tokens_table,
+        dup_candidate_table,
+        dup_output_table,
         fields,
     )
 
@@ -485,13 +476,13 @@ def evaluate_candidates(
     data_filename = "prepared_data.csv"
     data.to_csv(data_filename)
 
-    logger.info(f"Assembling data module using batch size {BATCH_SIZE}.")
+    logger.info(f"Assembling data module using batch size {batch_size}.")
     pl_data = ContactDataModule(
         data_dir="",
         prepared_file=data_filename,
         val_file=data_filename,
         train_file=data_filename,
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
         fields=classifier_model.fields(),
         preserve_text_fields=False,
         return_predict_record=True,
@@ -520,7 +511,7 @@ def evaluate_candidates(
 
     logger.info("Parsing classification results.")
     classification_threshold = float(
-        CLASSIFIER_THRESHOLD or classifier_model.hparams.classification_threshold  # type: ignore
+        classifier_threshold or classifier_model.hparams.classification_threshold  # type: ignore
     )
     for pair in all_evaluated_pairs:
         pair["pkey1"] = pair["pkey1"].item()
@@ -540,22 +531,52 @@ def evaluate_candidates(
     logger.debug(upload_data)
 
     db.upsert(
-        DUP_OUTPUT_TABLE,
+        dup_output_table,
         upload_data,
         primary_key=["pkey1", "pkey2"],
     )
 
 
-def main(db: DatabaseAdapter):
-    encoder = get_model(PlContactEncoder, ENCODER_URL)
-    encoder_uuid: str = encoder.hparams.uuid  # type: ignore
-    check_encoder_uuid(db, encoder_uuid, SOURCE_TABLE)
+def step_2_run_search(
+    db: DatabaseAdapter,
+    encoder_url: str,
+    classifier_url: str,
+    source_table: SQLTable,
+    tokens_table: SQLTable,
+    dup_candidate_table: SQLTable,
+    dup_output_table: SQLTable,
+    threshold: Optional[float] = None,
+    classifier_threshold: Optional[float] = None,
+    source_pool: Optional[str] = None,
+    search_pool: Optional[str] = None,
+    n_trees: int = 10,
+    n_closest: int = 1,
+    search_k: int = -1,
+    batch_size: int = 16,
+):
+    execution_mode = determine_mode(search_pool, source_pool)
 
-    generate_candidates(db, encoder, DUP_CANDIDATE_TABLE)
+    encoder = get_model(PlContactEncoder, encoder_url)
+    encoder_uuid: str = encoder.hparams.uuid  # type: ignore
+    check_encoder_uuid(db, encoder_uuid, source_table)
+
+    generate_candidates(
+        db,
+        encoder,
+        dup_candidate_table,
+        source_table=source_table,
+        threshold=threshold,
+        execution_mode=execution_mode,
+        source_pool=source_pool,
+        search_pool=search_pool,
+        n_trees=n_trees,
+        n_closest=n_closest,
+        search_k=search_k,
+    )
 
     classifier_model = get_model(
         PlContactsClassifier,
-        CLASSIFIER_URL,
+        classifier_url,
         "classifier.pt",
         encoder=encoder.encoder,
     )
@@ -563,16 +584,67 @@ def main(db: DatabaseAdapter):
     classifier_uuid: str = classifier_model.hparams.uuid  # type: ignore
 
     check_candidate_uuids(
-        db, classifier_uuid, classifier_encoder_uuid, encoder_uuid, DUP_OUTPUT_TABLE
+        db, classifier_uuid, classifier_encoder_uuid, encoder_uuid, dup_output_table
     )
 
-    evaluate_candidates(db, encoder, classifier_model)
+    evaluate_candidates(
+        db,
+        encoder,
+        classifier_model,
+        dup_candidate_table=dup_candidate_table,
+        tokens_table=tokens_table,
+        dup_output_table=dup_output_table,
+        batch_size=batch_size,
+        classifier_threshold=classifier_threshold,
+    )
 
 
-if __name__ == "__main__":
+def main():
+    SCHEMA = os.environ["OUTPUT_SCHEMA"]
+    SOURCE_TABLE = table_from_full_path(SCHEMA + ".idr_out")
+    TOKENS_TABLE = table_from_full_path(SCHEMA + ".idr_tokens")
+    DUP_CANDIDATE_TABLE = table_from_full_path(SCHEMA + ".idr_candidates")
+    DUP_OUTPUT_TABLE = table_from_full_path(SCHEMA + ".idr_dups")
+
+    THRESHOLD = os.getenv("THRESHOLD")
+    CLASSIFIER_THRESHOLD = os.getenv("CLASSIFIER_THRESHOLD")
+    N_CLOSEST = int(os.getenv("N_CLOSEST", 2))
+    N_TREES = int(os.getenv("N_TREES", 10))
+    SEARCH_K = int(os.getenv("SEARCH_K", -1))
+    BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
+
+    SEARCH_POOL = os.getenv("SEARCH_POOL")
+    SOURCE_POOL = os.getenv("SOURCE_POOL")
+
+    ENCODER_URL = os.environ["MODEL_URL"]
+    CLASSIFIER_URL = os.environ["CLASSIFIER_URL"]
+
     logging.basicConfig()
 
     init_rs_env()
     db = RedshiftDbAdapter(Redshift())
 
-    main(db)
+    threshold = float(THRESHOLD) if THRESHOLD else None
+    classifier_threshold = float(CLASSIFIER_THRESHOLD) if CLASSIFIER_THRESHOLD else None
+
+    step_2_run_search(
+        db,
+        encoder_url=ENCODER_URL,
+        classifier_url=CLASSIFIER_URL,
+        source_table=SOURCE_TABLE,
+        tokens_table=TOKENS_TABLE,
+        dup_candidate_table=DUP_CANDIDATE_TABLE,
+        dup_output_table=DUP_OUTPUT_TABLE,
+        threshold=threshold,
+        classifier_threshold=classifier_threshold,
+        source_pool=SOURCE_POOL,
+        search_pool=SEARCH_POOL,
+        n_trees=N_TREES,
+        n_closest=N_CLOSEST,
+        search_k=SEARCH_K,
+        batch_size=BATCH_SIZE,
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -22,36 +22,17 @@ sys.path.append(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
-from idrt.train import PlContactEncoder  # noqa:E402
-from idrt.data import Field, ContactSingletonDataModule  # noqa:E402
+from idrt.train import PlContactEncoder
+from idrt.data import Field, ContactSingletonDataModule
 
 from database_adapter import DatabaseAdapter
 from redshift_db_adapter import RedshiftDbAdapter
 
-if __name__ == "__main__":
-    import importlib.util
-
-    dotenv_package = importlib.util.find_spec("dotenv")
-    if dotenv_package is not None:
-        print("Loading dotenv")
-        import dotenv
-
-        dotenv.load_dotenv(override=True)
-
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-DATA_TABLE = table_from_full_path(os.environ["DATA_TABLE"])
 
 DATA_PATH = "data.csv"
-
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
-
-SCHEMA = os.environ["OUTPUT_SCHEMA"]
-TOKENS_TABLE = table_from_full_path(SCHEMA + ".idr_tokens")
-OUTPUT_TABLE = table_from_full_path(SCHEMA + ".idr_out")
-LIMIT = int(os.getenv("LIMIT", str(500_000)))
 
 
 def load_data_conditionally(
@@ -59,6 +40,7 @@ def load_data_conditionally(
     data_table: SQLTable,
     output_table: SQLTable,
     fields: List[Field],
+    limit: int,
 ) -> str:
     temp_table = SQLTable("temp_load_data")
     temp_table_query = (
@@ -88,7 +70,7 @@ def load_data_conditionally(
         )
         .from_(temp_table)
         .orderby(temp_table.contact_timestamp, order=Order.asc)
-        .limit(LIMIT)
+        .limit(limit)
     )
 
     if db.table_exists(output_table):
@@ -108,16 +90,22 @@ def load_data_conditionally(
     return combine_queries(temp_table_query, load_temp_data)
 
 
-def save_data(db: DatabaseAdapter, fields: List[Field]) -> Table:
-    query = load_data_conditionally(db, DATA_TABLE, OUTPUT_TABLE, fields)
+def save_data(
+    db: DatabaseAdapter,
+    fields: List[Field],
+    data_table: SQLTable,
+    output_table: SQLTable,
+    limit: int,
+) -> Table:
+    query = load_data_conditionally(db, data_table, output_table, fields, limit)
     logger.info(f"Executing: {query}")
     data = db.execute_query(query) or Table()
 
     if data.num_rows == 0:
         logger.info("No rows found. Exiting.")
         sys.exit()
-    elif data.num_rows > LIMIT:
-        logger.info(f"Rows found: {data.num_rows} greater than limit {LIMIT}.")
+    elif data.num_rows > limit:
+        logger.info(f"Rows found: {data.num_rows} greater than limit {limit}.")
         sys.exit()
 
     logger.info(f"Found {data.num_rows} rows.")
@@ -130,24 +118,33 @@ def save_data(db: DatabaseAdapter, fields: List[Field]) -> Table:
     return data
 
 
-def upload_prepared_data(db: DatabaseAdapter, pl_data: ContactSingletonDataModule):
+def upload_prepared_data(
+    db: DatabaseAdapter, pl_data: ContactSingletonDataModule, tokens_table: SQLTable
+):
     logger.info("Saving tokens")
     data = Table.from_csv(pl_data.prepared_file)
     logger.debug("Saved prepared data:")
     logger.debug(data)
     db.upsert(
-        TOKENS_TABLE,
+        tokens_table,
         data,
         "primary_key",
     )
 
 
-def main(db: DatabaseAdapter):
+def step_1_prepare_data(
+    db: DatabaseAdapter,
+    batch_size: int,
+    data_table: SQLTable,
+    tokens_table: SQLTable,
+    output_table: SQLTable,
+    limit: int,
+):
     pl_trainer = pl.Trainer(enable_progress_bar=False)
     pl_model = get_model(PlContactEncoder, os.environ["MODEL_URL"])
     encoder_uuid: str = pl_model.hparams.uuid  # type: ignore
 
-    check_encoder_uuid(db, encoder_uuid, OUTPUT_TABLE)
+    check_encoder_uuid(db, encoder_uuid, output_table)
 
     fields = pl_model.fields()
 
@@ -155,19 +152,19 @@ def main(db: DatabaseAdapter):
     for f in fields:
         logger.info(f"\t{f}")
 
-    save_data(db, fields)
+    save_data(db, fields, data_table, output_table, limit)
 
     pl_data = ContactSingletonDataModule(
         data_dir="",
         data_lists=[DATA_PATH],
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
         return_record=True,
         preserve_text_fields=False,
     )
     logger.info("Preparing data.")
     pl_data.prepare_data(overwrite=True)
 
-    upload_prepared_data(db, pl_data)
+    upload_prepared_data(db, pl_data, tokens_table)
 
     logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(
@@ -212,13 +209,25 @@ def main(db: DatabaseAdapter):
     logger.info("Uploading results.")
     logger.debug(uploads)
 
-    db.upsert(OUTPUT_TABLE, uploads, "primary_key")
+    db.upsert(output_table, uploads, "primary_key")
 
 
-if __name__ == "__main__":
+def main():
     logging.basicConfig()
+
+    BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
+
+    SCHEMA = os.environ["OUTPUT_SCHEMA"]
+    DATA_TABLE = table_from_full_path(os.environ["DATA_TABLE"])
+    TOKENS_TABLE = table_from_full_path(SCHEMA + ".idr_tokens")
+    OUTPUT_TABLE = table_from_full_path(SCHEMA + ".idr_out")
+    LIMIT = int(os.getenv("LIMIT", str(500_000)))
 
     init_rs_env()
     db = RedshiftDbAdapter(Redshift())
 
-    main(db)
+    step_1_prepare_data(db, BATCH_SIZE, DATA_TABLE, TOKENS_TABLE, OUTPUT_TABLE, LIMIT)
+
+
+if __name__ == "__main__":
+    main()
