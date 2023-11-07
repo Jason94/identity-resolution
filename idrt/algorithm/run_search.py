@@ -457,7 +457,7 @@ def evaluate_candidates(
     fields = pl_encoder.fields()
 
     query = load_candidates_data_query(
-        db.table_exists(dup_candidate_table),
+        db.table_exists(dup_output_table),
         tokens_table,
         dup_candidate_table,
         dup_output_table,
