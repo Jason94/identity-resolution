@@ -11,11 +11,10 @@ from enum import Enum, auto
 from pypika import Table as SQLTable, Query, Order, AliasedQuery
 from pypika.queries import QueryBuilder
 from pypika.terms import LiteralValue
+import petl as etl
 
-from parsons import Table
 from parsons.databases.redshift import Redshift
 
-from utils import init_rs_env, get_model, log_once, table_from_full_path
 
 sys.path.append(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,9 +26,18 @@ from idrt.train_classifier import PlContactsClassifier
 from idrt.data import ContactDataModule, Field
 from utilities import transpose_dict_of_lists
 
-from algorithm.utils import check_encoder_uuid
 from algorithm.database_adapter import DatabaseAdapter
 from algorithm.redshift_db_adapter import RedshiftDbAdapter
+
+from idrt.algorithm.utils import (
+    init_rs_env,
+    get_model,
+    log_once,
+    table_from_full_path,
+    check_encoder_uuid,
+    EtlTable,
+    download_model,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -52,19 +60,19 @@ def determine_mode(search_pool: Optional[str], source_pool: Optional[str]) -> Mo
         return Mode.Pooled
 
 
-def load_raw_unpooled_data(db: DatabaseAdapter, source_table: SQLTable) -> Table:
+def load_raw_unpooled_data(db: DatabaseAdapter, source_table: SQLTable) -> EtlTable:
     query = (
         Query.select(source_table.star)
         .from_(source_table)
         .orderby(source_table.primary_key, order=Order.asc)
     )
 
-    return db.execute_query(query) or Table()
+    return db.execute_query(query) or []
 
 
 def load_raw_pooled_data(
     db: DatabaseAdapter, source_table: SQLTable, pool: str
-) -> Table:
+) -> EtlTable:
     query = (
         Query.select(source_table.star)
         .from_(source_table)
@@ -72,17 +80,17 @@ def load_raw_pooled_data(
         .orderby(source_table.primary_key, order=Order.asc)
     )
 
-    return db.execute_query(query) or Table()
+    return db.execute_query(query) or []
 
 
 def shape_raw_data(
-    raw_data: Table, embedding_dim: int
+    raw_data: EtlTable, embedding_dim: int
 ) -> Tuple[List[List[float]], Dict[int, int]]:
     vectors = []
     index_id_map = {}
     i = 0
 
-    for row in raw_data:
+    for row in etl.dicts(raw_data):
         index_id_map[i] = row["primary_key"]
         vectors.append([row[f"x_{n}"] for n in range(0, embedding_dim)])
 
@@ -230,10 +238,11 @@ def upload_duplicate_candidates(
             )
             i += 1
 
-    upload_data = Table(item_classes)
+    upload_data = etl.fromdicts(item_classes)
+    n_rows = etl.nrows(upload_data)
 
-    if upload_data.num_rows > 0:
-        logger.info(f"Found {upload_data.num_rows} duplicate candidates.")
+    if n_rows > 0:
+        logger.info(f"Found {n_rows} duplicate candidates.")
         logger.info("Uploading data.")
         db.bulk_upload(candidates_table, upload_data)
     else:
@@ -260,7 +269,8 @@ def check_candidate_uuids(
             .distinct()
             .from_(duplicates_table)
         )
-        existing_uuids: List[str] = db.execute_query(query)["classifier_uuid"]  # type: ignore
+        data: EtlTable = db.execute_query(query) or []
+        existing_uuids: List[str] = list(etl.values(data, "classifier_uuid"))  # type: ignore
 
         if len(existing_uuids) > 1 or (
             classifier_uuid not in existing_uuids and len(existing_uuids) > 0
@@ -465,16 +475,17 @@ def evaluate_candidates(
     )
 
     logger.debug(f"Executing query: {query}")
-    data = db.execute_query(query) or Table()
-    logger.info(f"Loaded {data.num_rows} new candidate pairs.")
+    candidates_data: EtlTable = db.execute_query(query) or []
+    n_candidates = etl.nrows(candidates_data)
+    logger.info(f"Loaded {n_candidates} new candidate pairs.")
 
-    if data.num_rows == 0:
+    if n_candidates == 0:
         logger.info("No new candidate pairs found. Exiting.")
         sys.exit()
 
     logger.info("Saving candidates data to disk.")
     data_filename = "prepared_data.csv"
-    data.to_csv(data_filename)
+    etl.tocsv(n_candidates, data_filename)
 
     logger.info(f"Assembling data module using batch size {batch_size}.")
     pl_data = ContactDataModule(
@@ -522,11 +533,11 @@ def evaluate_candidates(
         pair["matches"] = pair["classification_score"] >= classification_threshold
 
     logger.info("Uploading results.")
-    upload_data = Table(all_evaluated_pairs)
-    upload_data.add_column("comparison_timestamp", datetime.now())
+    upload_data: EtlTable = etl.fromdicts(all_evaluated_pairs)
+    upload_data = etl.addfield(upload_data, "comparison_timestamp", datetime.now())
 
     classifier_uuid: str = classifier_model.hparams.uuid  # type: ignore
-    upload_data.add_column("classifier_uuid", classifier_uuid)
+    upload_data = etl.addfield(upload_data, "classifier_uuid", classifier_uuid)
 
     logger.debug(upload_data)
 
@@ -539,8 +550,8 @@ def evaluate_candidates(
 
 def step_2_run_search(
     db: DatabaseAdapter,
-    encoder_url: str,
-    classifier_url: str,
+    encoder_path: str,
+    classifier_path: str,
     source_table: SQLTable,
     tokens_table: SQLTable,
     dup_candidate_table: SQLTable,
@@ -556,7 +567,7 @@ def step_2_run_search(
 ):
     execution_mode = determine_mode(search_pool, source_pool)
 
-    encoder = get_model(PlContactEncoder, encoder_url)
+    encoder = get_model(PlContactEncoder, encoder_path)
     encoder_uuid: str = encoder.hparams.uuid  # type: ignore
     check_encoder_uuid(db, encoder_uuid, source_table)
 
@@ -576,8 +587,7 @@ def step_2_run_search(
 
     classifier_model = get_model(
         PlContactsClassifier,
-        classifier_url,
-        "classifier.pt",
+        classifier_path,
         encoder=encoder.encoder,
     )
     classifier_encoder_uuid: str = classifier_model.hparams.encoder_uuid  # type: ignore
@@ -627,10 +637,16 @@ def main():
     threshold = float(THRESHOLD) if THRESHOLD else None
     classifier_threshold = float(CLASSIFIER_THRESHOLD) if CLASSIFIER_THRESHOLD else None
 
+    encoder_path = "encoder.pt"
+    download_model(ENCODER_URL, encoder_path)
+
+    classifier_path = "classifier.pt"
+    download_model(CLASSIFIER_URL, classifier_path)
+
     step_2_run_search(
         db,
-        encoder_url=ENCODER_URL,
-        classifier_url=CLASSIFIER_URL,
+        encoder_path=encoder_path,
+        classifier_path=classifier_path,
         source_table=SOURCE_TABLE,
         tokens_table=TOKENS_TABLE,
         dup_candidate_table=DUP_CANDIDATE_TABLE,

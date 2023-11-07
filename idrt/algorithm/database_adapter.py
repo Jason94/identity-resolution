@@ -3,7 +3,8 @@ from typing import Union, Optional, Any
 
 from pypika import Table as SQLTable
 from pypika.queries import QueryBuilder
-from parsons import Table
+
+from utils import EtlTable
 
 
 class DatabaseAdapter(ABC):
@@ -38,10 +39,10 @@ class DatabaseAdapter(ABC):
             return self._table_exists(table.get_sql())
 
     @abstractmethod
-    def _execute_query(self, query: str) -> Optional[Table]:
+    def _execute_query(self, query: str) -> Optional[EtlTable]:
         pass
 
-    def execute_query(self, query: Union[str, QueryBuilder]) -> Optional[Table]:
+    def execute_query(self, query: Union[str, QueryBuilder]) -> Optional[EtlTable]:
         """Execute a SQL query in the database.
 
         Args:
@@ -56,10 +57,10 @@ class DatabaseAdapter(ABC):
             return self._execute_query(query.get_sql())
 
     @abstractmethod
-    def _upsert(self, tablename: str, data: Table, primary_key: Any):
+    def _upsert(self, tablename: str, data: EtlTable, primary_key: Any):
         pass
 
-    def upsert(self, table: Union[str, SQLTable], data: Table, primary_key: Any):
+    def upsert(self, table: Union[str, SQLTable], data: EtlTable, primary_key: Any):
         """Upsert data into a database table.
 
         Args:
@@ -72,10 +73,10 @@ class DatabaseAdapter(ABC):
             self._upsert(table.get_sql(), data, primary_key)
 
     @abstractmethod
-    def _bulk_upload(self, tablename: str, data: Table):
+    def _bulk_upload(self, tablename: str, data: EtlTable):
         pass
 
-    def bulk_upload(self, table: Union[str, SQLTable], data: Table):
+    def bulk_upload(self, table: Union[str, SQLTable], data: EtlTable):
         """Efficiently bulk upload data into the database.
 
         Args:

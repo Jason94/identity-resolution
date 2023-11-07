@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Type, TypeVar, List
+from typing import Type, TypeVar, List, Any
 import requests
 import torch
 import lightning.pytorch as pl
@@ -16,6 +16,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+EtlTable = Any
+
 
 def init_rs_env():
     """Match the environment variables Civis generates with the names Parsons expects."""
@@ -25,8 +27,16 @@ def init_rs_env():
     os.environ["S3_TEMP_BUCKET"] = os.environ["S3_TEMP_BUCKET"]
 
 
-def download_model(model_url: str, model_filename: str = "model.pt"):
-    model_path = os.path.join(os.path.dirname(__file__), model_filename)
+def download_model(model_url: str, model_path: str):
+    """Download a model weight file from a URL.
+
+    Args:
+        model_url (str): URL serving the model file.
+        model_path (str): Filename to store the file.
+
+    Raises:
+        ConnectionError: Raised if the download fails.
+    """
 
     # Send a GET request to download the model
     response = requests.get(model_url, stream=True)
@@ -46,14 +56,11 @@ def download_model(model_url: str, model_filename: str = "model.pt"):
 M = TypeVar("M", bound=pl.LightningModule)
 
 
-def get_model(
-    model_class: Type[M], model_url: str, model_filename: str = "model.pt", **kwargs
-) -> M:
+def get_model(model_class: Type[M], model_filename: str, **kwargs) -> M:
     model_path = os.path.join(os.path.dirname(__file__), model_filename)
 
     if not os.path.exists(model_path):
-        logger.info("Loading model.")
-        download_model(model_url, model_filename)
+        raise FileNotFoundError(f"Cannot find model at {model_path}")
     else:
         logger.info("Found model.")
 

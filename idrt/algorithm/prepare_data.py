@@ -6,8 +6,8 @@ import torch
 import lightning.pytorch as pl
 
 from parsons.databases.redshift import Redshift
-from parsons import Table
 
+import petl as etl
 from pypika import Table as SQLTable, Query, Order, functions as fn
 
 from utils import (
@@ -16,6 +16,8 @@ from utils import (
     check_encoder_uuid,
     table_from_full_path,
     combine_queries,
+    EtlTable,
+    download_model,
 )
 
 sys.path.append(
@@ -96,24 +98,25 @@ def save_data(
     data_table: SQLTable,
     output_table: SQLTable,
     limit: int,
-) -> Table:
+) -> EtlTable:
     query = load_data_conditionally(db, data_table, output_table, fields, limit)
     logger.info(f"Executing: {query}")
-    data = db.execute_query(query) or Table()
+    data = db.execute_query(query) or []
+    n_rows = etl.nrows(data)
 
-    if data.num_rows == 0:
+    if n_rows == 0:
         logger.info("No rows found. Exiting.")
         sys.exit()
-    elif data.num_rows > limit:
-        logger.info(f"Rows found: {data.num_rows} greater than limit {limit}.")
+    elif n_rows > limit:
+        logger.info(f"Rows found: {n_rows} greater than limit {limit}.")
         sys.exit()
 
-    logger.info(f"Found {data.num_rows} rows.")
+    logger.info(f"Found {n_rows} rows.")
 
     logger.debug("Queried data:")
     logger.debug(data)
 
-    data.to_csv(DATA_PATH, encoding="utf8")
+    etl.tocsv(data, DATA_PATH, encoding="utf8")
 
     return data
 
@@ -122,7 +125,7 @@ def upload_prepared_data(
     db: DatabaseAdapter, pl_data: ContactSingletonDataModule, tokens_table: SQLTable
 ):
     logger.info("Saving tokens")
-    data = Table.from_csv(pl_data.prepared_file)
+    data = etl.fromcsv(pl_data.prepared_file)
     logger.debug("Saved prepared data:")
     logger.debug(data)
     db.upsert(
@@ -139,9 +142,10 @@ def step_1_prepare_data(
     tokens_table: SQLTable,
     output_table: SQLTable,
     limit: int,
+    encoder_path: str,
 ):
     pl_trainer = pl.Trainer(enable_progress_bar=False)
-    pl_model = get_model(PlContactEncoder, os.environ["MODEL_URL"])
+    pl_model = get_model(PlContactEncoder, encoder_path)
     encoder_uuid: str = pl_model.hparams.uuid  # type: ignore
 
     check_encoder_uuid(db, encoder_uuid, output_table)
@@ -192,19 +196,17 @@ def step_1_prepare_data(
             result_lists.append([pkey, timestamp, pool, *embedding])  # type: ignore
 
     embedding_dim = results[0][0].shape[1]
-    uploads = Table(
+    uploads = [
         [
-            [
-                "primary_key",
-                "contact_timestamp",
-                "pool",
-                *[str(x) for x in range(0, embedding_dim)],
-            ],
-            *result_lists,
-        ]
-    )
+            "primary_key",
+            "contact_timestamp",
+            "pool",
+            *[str(x) for x in range(0, embedding_dim)],
+        ],
+        *result_lists,
+    ]
 
-    uploads.add_column("encoder_uuid", encoder_uuid)
+    uploads = etl.addfield(uploads, "encoder_uuid", encoder_uuid)
 
     logger.info("Uploading results.")
     logger.debug(uploads)
@@ -222,11 +224,23 @@ def main():
     TOKENS_TABLE = table_from_full_path(SCHEMA + ".idr_tokens")
     OUTPUT_TABLE = table_from_full_path(SCHEMA + ".idr_out")
     LIMIT = int(os.getenv("LIMIT", str(500_000)))
+    MODEL_URL = os.environ["MODEL_URL"]
 
     init_rs_env()
     db = RedshiftDbAdapter(Redshift())
 
-    step_1_prepare_data(db, BATCH_SIZE, DATA_TABLE, TOKENS_TABLE, OUTPUT_TABLE, LIMIT)
+    model_path = "encoder.pt"
+    download_model(MODEL_URL, model_path)
+
+    step_1_prepare_data(
+        db,
+        batch_size=BATCH_SIZE,
+        data_table=DATA_TABLE,
+        tokens_table=TOKENS_TABLE,
+        output_table=OUTPUT_TABLE,
+        limit=LIMIT,
+        encoder_path=model_path,
+    )
 
 
 if __name__ == "__main__":
