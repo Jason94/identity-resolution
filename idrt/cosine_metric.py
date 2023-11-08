@@ -2,7 +2,8 @@ from typing import Callable, Tuple
 import torch.nn as nn
 from torch import Tensor
 from torch.nn.functional import cosine_similarity
-from metric import Metric
+
+from idrt.metric import Metric
 
 
 def is_duplicate_cosine(threshold, return_distance=True):

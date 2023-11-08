@@ -1,7 +1,7 @@
 import argparse
 
-from train_yaml import yaml_to_namespace
-from train_classifier import train_classifier
+from idrt.train_yaml import yaml_to_namespace
+from idrt.train_classifier import train_classifier
 
 
 def main():

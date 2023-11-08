@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "idrt"
+version = "0.5.1"
+authors = [
+  { name="Jason Walker", email="JasonW94@gmail.com" },
+]
+description = "A library that uses deep-learning to match contacts based on text-fields such as name and email."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "tensorboard",
+    "scikit-learn",
+    "matplotlib",
+    "seaborn",
+    "lightning",
+    "lightning[extra]"
+]
+
+[project.optional-dependencies]
+test = [
+    "expects",
+    "mamba"
+]
+
+algorithm=[
+    "petl",
+    "annoy",
+    "pypika"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Jason94/identity-resolution"
+"Bug Tracker" = "https://github.com/Jason94/identity-resolution/issues"

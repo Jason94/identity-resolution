@@ -10,21 +10,16 @@ from argparse import Namespace
 from torchmetrics.classification import F1Score, Precision, Recall
 from uuid import uuid4
 
-import os
-import sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from idrt.data import ContactDataModule, Field, smart_parse_field
-from model import ContactEncoder
-from model_classifier import ContactsClassifier
+from idrt.data import ContactDataModule, Field
+from idrt.model import ContactEncoder
+from idrt.model_classifier import ContactsClassifier
 from idrt.model_cli import (
     make_data_args,
     make_model_io_args,
     make_training_args,
     make_universal_args,
 )
-from train import PlContactEncoder
+from idrt.train import PlContactEncoder
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

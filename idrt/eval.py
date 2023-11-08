@@ -1,15 +1,11 @@
 from typing import Optional, Callable, Tuple
 from sklearn.metrics import precision_score, recall_score, f1_score
-import os
-import sys
 import torch
 from tqdm import tqdm
 import pandas as pd
 
-from model import ContactEncoder
-from config import *
-from data import ContactDataModule, create_char_tokenizer
-from utilities import transpose_dict_of_lists
+from idrt.data import ContactDataModule
+from idrt.utilities import transpose_dict_of_lists
 
 
 def convert_bool_tensor(tensor):

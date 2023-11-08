@@ -3,9 +3,9 @@ import sys
 from typing import Tuple
 import torch
 
-from train import PlContactEncoder
-from config import *
-from data import (
+from idrt.train import PlContactEncoder
+from idrt.config import model_path
+from idrt.data import (
     create_char_tokenizer,
     CompositeNameField,
     EmailField,
@@ -98,6 +98,6 @@ if __name__ == "__main__":
 
     print(embeddings)
 
-    matches, dist = pl_model.similarity_function()(embeddings[0], embeddings[1])
+    matches, dist = pl_model.similarity_function()(embeddings[0], embeddings[1])  # type: ignore
 
     print(f"Distance: {dist:.4f}, Matches: {matches}")

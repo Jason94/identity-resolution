@@ -1,4 +1,3 @@
-import os
 import sys
 from typing import Dict, List, Optional, Tuple
 from annoy import AnnoyIndex
@@ -13,29 +12,18 @@ from pypika.queries import QueryBuilder
 from pypika.terms import LiteralValue
 import petl as etl
 
-from parsons.databases.redshift import Redshift
-
-
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
-
 from idrt.metric import Metric
 from idrt.train import PlContactEncoder
 from idrt.train_classifier import PlContactsClassifier
 from idrt.data import ContactDataModule, Field
-from utilities import transpose_dict_of_lists
+from idrt.utilities import transpose_dict_of_lists
 
-from algorithm.database_adapter import DatabaseAdapter, EtlTable
-from algorithm.redshift_db_adapter import RedshiftDbAdapter
+from idrt.algorithm.database_adapter import DatabaseAdapter, EtlTable
 
 from idrt.algorithm.utils import (
-    init_rs_env,
     get_model,
     log_once,
-    table_from_full_path,
     check_encoder_uuid,
-    download_model,
 )
 
 
@@ -606,60 +594,3 @@ def step_2_run_search(
         batch_size=batch_size,
         classifier_threshold=classifier_threshold,
     )
-
-
-def main():
-    SCHEMA = os.environ["OUTPUT_SCHEMA"]
-    SOURCE_TABLE = table_from_full_path(SCHEMA + ".idr_out")
-    TOKENS_TABLE = table_from_full_path(SCHEMA + ".idr_tokens")
-    DUP_CANDIDATE_TABLE = table_from_full_path(SCHEMA + ".idr_candidates")
-    DUP_OUTPUT_TABLE = table_from_full_path(SCHEMA + ".idr_dups")
-
-    THRESHOLD = os.getenv("THRESHOLD")
-    CLASSIFIER_THRESHOLD = os.getenv("CLASSIFIER_THRESHOLD")
-    N_CLOSEST = int(os.getenv("N_CLOSEST", 2))
-    N_TREES = int(os.getenv("N_TREES", 10))
-    SEARCH_K = int(os.getenv("SEARCH_K", -1))
-    BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
-
-    SEARCH_POOL = os.getenv("SEARCH_POOL")
-    SOURCE_POOL = os.getenv("SOURCE_POOL")
-
-    ENCODER_URL = os.environ["MODEL_URL"]
-    CLASSIFIER_URL = os.environ["CLASSIFIER_URL"]
-
-    logging.basicConfig()
-
-    init_rs_env()
-    db = RedshiftDbAdapter(Redshift())
-
-    threshold = float(THRESHOLD) if THRESHOLD else None
-    classifier_threshold = float(CLASSIFIER_THRESHOLD) if CLASSIFIER_THRESHOLD else None
-
-    encoder_path = "encoder.pt"
-    download_model(ENCODER_URL, encoder_path)
-
-    classifier_path = "classifier.pt"
-    download_model(CLASSIFIER_URL, classifier_path)
-
-    step_2_run_search(
-        db,
-        encoder_path=encoder_path,
-        classifier_path=classifier_path,
-        source_table=SOURCE_TABLE,
-        tokens_table=TOKENS_TABLE,
-        dup_candidate_table=DUP_CANDIDATE_TABLE,
-        dup_output_table=DUP_OUTPUT_TABLE,
-        threshold=threshold,
-        classifier_threshold=classifier_threshold,
-        source_pool=SOURCE_POOL,
-        search_pool=SEARCH_POOL,
-        n_trees=N_TREES,
-        n_closest=N_CLOSEST,
-        search_k=SEARCH_K,
-        batch_size=BATCH_SIZE,
-    )
-
-
-if __name__ == "__main__":
-    main()

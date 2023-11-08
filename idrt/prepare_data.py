@@ -1,7 +1,7 @@
 import logging
 
-from model_cli import make_data_args, make_universal_args
-from data import ContactDataModule, lookup_field
+from idrt.model_cli import make_data_args, make_universal_args
+from idrt.data import ContactDataModule, lookup_field
 
 
 def main():

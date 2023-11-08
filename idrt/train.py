@@ -8,15 +8,10 @@ from argparse import Namespace
 from pytorch_lightning.loggers import TensorBoardLogger  # noqa:F401
 from lightning.pytorch.loggers.logger import Logger as PlLogger
 import logging
-import os
-import sys
+from uuid import uuid4
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from model import ContactEncoder
-
+from idrt.model import ContactEncoder
 from idrt.data import ContactDataModule, Field, smart_parse_field
-
 from idrt.model_cli import (
     make_data_args,
     make_model_args,
@@ -24,12 +19,11 @@ from idrt.model_cli import (
     make_training_args,
     make_universal_args,
 )
-from embedding_logger import TensorBoardEmbeddingLogger
-from utilities import transpose_dict_of_lists, split_field_dict
-from metric import Metric
-from cosine_metric import CosineMetric  # noqa:F401
-from contrastive_metric import ContrastiveMetric  # noqa:F401
-from uuid import uuid4
+from idrt.embedding_logger import TensorBoardEmbeddingLogger
+from idrt.utilities import transpose_dict_of_lists, split_field_dict
+from idrt.metric import Metric
+from idrt.cosine_metric import CosineMetric  # noqa:F401
+from idrt.contrastive_metric import ContrastiveMetric  # noqa:F401
 
 
 logger = logging.getLogger(__name__)

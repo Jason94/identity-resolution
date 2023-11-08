@@ -1,6 +1,6 @@
 from typing import List, Tuple
 
-from data import Field
+from idrt.data import Field
 
 
 def split_field_dict(
