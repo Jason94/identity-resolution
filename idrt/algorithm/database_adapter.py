@@ -4,7 +4,7 @@ from typing import Union, Optional, Any
 from pypika import Table as SQLTable
 from pypika.queries import QueryBuilder
 
-from utils import EtlTable
+EtlTable = Any
 
 
 class DatabaseAdapter(ABC):

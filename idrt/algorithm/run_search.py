@@ -26,7 +26,7 @@ from idrt.train_classifier import PlContactsClassifier
 from idrt.data import ContactDataModule, Field
 from utilities import transpose_dict_of_lists
 
-from algorithm.database_adapter import DatabaseAdapter
+from algorithm.database_adapter import DatabaseAdapter, EtlTable
 from algorithm.redshift_db_adapter import RedshiftDbAdapter
 
 from idrt.algorithm.utils import (
@@ -35,7 +35,6 @@ from idrt.algorithm.utils import (
     log_once,
     table_from_full_path,
     check_encoder_uuid,
-    EtlTable,
     download_model,
 )
 

@@ -1,9 +1,8 @@
 from typing import Optional, Any
 from parsons import Table
-from database_adapter import DatabaseAdapter
+from database_adapter import DatabaseAdapter, EtlTable
 
 from parsons.databases.redshift import Redshift
-from idrt.algorithm.utils import EtlTable
 
 
 class RedshiftDbAdapter(DatabaseAdapter):

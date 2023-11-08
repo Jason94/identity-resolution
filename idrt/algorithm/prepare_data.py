@@ -16,7 +16,6 @@ from utils import (
     check_encoder_uuid,
     table_from_full_path,
     combine_queries,
-    EtlTable,
     download_model,
 )
 
@@ -27,7 +26,7 @@ sys.path.append(
 from idrt.train import PlContactEncoder
 from idrt.data import Field, ContactSingletonDataModule
 
-from database_adapter import DatabaseAdapter
+from database_adapter import DatabaseAdapter, EtlTable
 from redshift_db_adapter import RedshiftDbAdapter
 
 logger = logging.getLogger(__name__)

@@ -16,8 +16,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-EtlTable = Any
-
 
 def init_rs_env():
     """Match the environment variables Civis generates with the names Parsons expects."""
