@@ -83,7 +83,7 @@ def shape_raw_data(
 
         i += 1
         if i % 100_000 == 0:
-            logger.info(f"{i} / {raw_data.num_rows}")
+            logger.info(f"{i} / {etl.nrows(raw_data)}")
 
     return vectors, index_id_map
 
@@ -102,7 +102,7 @@ def load_data(
     if raw_data is None:
         raise ConnectionError("Error retrieving data from the database.")
 
-    logger.info(f"Found {raw_data.num_rows} rows to parse. Reshaping data.")
+    logger.info(f"Found {etl.nrows(raw_data)} rows to parse. Reshaping data.")
 
     return shape_raw_data(raw_data, embedding_dim)
 
