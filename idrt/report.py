@@ -72,20 +72,32 @@ def create_html_report(
         if cat not in incorrect_counts:
             incorrect_counts[cat] = 0
 
+    correct_counts = correct_counts.rename({-1: "Distinct", 1: "Duplicate"})
+    incorrect_counts = incorrect_counts.rename({-1: "Distinct", 1: "Duplicate"})
+
     # Bar plots
-    sns.barplot(x=correct_counts.index, y=correct_counts, ax=axes[0, 0])
-    sns.barplot(x=incorrect_counts.index, y=incorrect_counts, ax=axes[0, 1])
+    sns.barplot(
+        x=correct_counts.index,
+        y=correct_counts,
+        hue=correct_counts.index,
+        ax=axes[0, 0],
+        legend=False,  # type: ignore
+    )
+    sns.barplot(
+        x=incorrect_counts.index,
+        y=incorrect_counts,
+        hue=incorrect_counts.index,
+        ax=axes[0, 1],
+        legend=False,  # type: ignore
+    )
 
     axes[0, 0].set_title("Labels: Correct Predictions")
     axes[0, 1].set_title("Labels: Incorrect Predictions")
 
-    for ax in axes[0, :2]:  # Set labels for the first two bar plots
-        ax.set_xticklabels(["Distinct", "Duplicate"])
-
     # Pie charts
     # Calculate correct and incorrect counts for duplicates and distincts
-    duplicate_counts = [correct_counts[1], incorrect_counts[1]]
-    distinct_counts = [correct_counts[-1], incorrect_counts[-1]]
+    duplicate_counts = [correct_counts["Duplicate"], incorrect_counts["Duplicate"]]
+    distinct_counts = [correct_counts["Distinct"], incorrect_counts["Distinct"]]
 
     plot_pie(
         axes[1, 0],

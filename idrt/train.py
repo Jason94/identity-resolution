@@ -260,7 +260,8 @@ def train(
         mode="max",
         filename="{epoch:02d}---{val_loss:.4f}-{val_f1:.4f}",
         every_n_epochs=2,
-        save_last=True,
+        # TODO: Enable when fixed https://github.com/Lightning-AI/lightning/issues/18969
+        # save_last=True,
     )
 
     if lightning_logger is None:
