@@ -1,4 +1,3 @@
-import os
 import sys
 from typing import Dict, List, Optional, Tuple
 from annoy import AnnoyIndex
@@ -13,29 +12,18 @@ from pypika.queries import QueryBuilder
 from pypika.terms import LiteralValue
 import petl as etl
 
-from parsons.databases.redshift import Redshift
-
-
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
-
 from idrt.metric import Metric
 from idrt.train import PlContactEncoder
 from idrt.train_classifier import PlContactsClassifier
 from idrt.data import ContactDataModule, Field
-from utilities import transpose_dict_of_lists
+from idrt.utilities import transpose_dict_of_lists
 
-from algorithm.database_adapter import DatabaseAdapter, EtlTable
-from algorithm.redshift_db_adapter import RedshiftDbAdapter
+from idrt.algorithm.database_adapter import DatabaseAdapter, EtlTable
 
 from idrt.algorithm.utils import (
-    init_rs_env,
     get_model,
     log_once,
-    table_from_full_path,
     check_encoder_uuid,
-    download_model,
 )
 
 
@@ -95,7 +83,7 @@ def shape_raw_data(
 
         i += 1
         if i % 100_000 == 0:
-            logger.info(f"{i} / {raw_data.num_rows}")
+            logger.info(f"{i} / {etl.nrows(raw_data)}")
 
     return vectors, index_id_map
 
@@ -114,7 +102,7 @@ def load_data(
     if raw_data is None:
         raise ConnectionError("Error retrieving data from the database.")
 
-    logger.info(f"Found {raw_data.num_rows} rows to parse. Reshaping data.")
+    logger.info(f"Found {etl.nrows(raw_data)} rows to parse. Reshaping data.")
 
     return shape_raw_data(raw_data, embedding_dim)
 
@@ -457,6 +445,7 @@ def evaluate_candidates(
     dup_output_table: SQLTable,
     batch_size: int,
     classifier_threshold: Optional[float],
+    enable_progress_bar: bool,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Found device {device}")
@@ -484,7 +473,7 @@ def evaluate_candidates(
 
     logger.info("Saving candidates data to disk.")
     data_filename = "prepared_data.csv"
-    etl.tocsv(n_candidates, data_filename)
+    etl.tocsv(candidates_data, data_filename)
 
     logger.info(f"Assembling data module using batch size {batch_size}.")
     pl_data = ContactDataModule(
@@ -500,7 +489,7 @@ def evaluate_candidates(
     pl_data.prepare_data()
     pl_data.setup("predict")
 
-    trainer = pl.Trainer(enable_progress_bar=False)
+    trainer = pl.Trainer(enable_progress_bar=enable_progress_bar)
 
     logger.info("Running classification model. This will take a while!")
     all_evaluated_pairs = []
@@ -563,6 +552,7 @@ def step_2_run_search(
     n_closest: int = 1,
     search_k: int = -1,
     batch_size: int = 16,
+    enable_progress_bar: bool = True,
 ):
     execution_mode = determine_mode(search_pool, source_pool)
 
@@ -605,61 +595,5 @@ def step_2_run_search(
         dup_output_table=dup_output_table,
         batch_size=batch_size,
         classifier_threshold=classifier_threshold,
+        enable_progress_bar=enable_progress_bar,
     )
-
-
-def main():
-    SCHEMA = os.environ["OUTPUT_SCHEMA"]
-    SOURCE_TABLE = table_from_full_path(SCHEMA + ".idr_out")
-    TOKENS_TABLE = table_from_full_path(SCHEMA + ".idr_tokens")
-    DUP_CANDIDATE_TABLE = table_from_full_path(SCHEMA + ".idr_candidates")
-    DUP_OUTPUT_TABLE = table_from_full_path(SCHEMA + ".idr_dups")
-
-    THRESHOLD = os.getenv("THRESHOLD")
-    CLASSIFIER_THRESHOLD = os.getenv("CLASSIFIER_THRESHOLD")
-    N_CLOSEST = int(os.getenv("N_CLOSEST", 2))
-    N_TREES = int(os.getenv("N_TREES", 10))
-    SEARCH_K = int(os.getenv("SEARCH_K", -1))
-    BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
-
-    SEARCH_POOL = os.getenv("SEARCH_POOL")
-    SOURCE_POOL = os.getenv("SOURCE_POOL")
-
-    ENCODER_URL = os.environ["MODEL_URL"]
-    CLASSIFIER_URL = os.environ["CLASSIFIER_URL"]
-
-    logging.basicConfig()
-
-    init_rs_env()
-    db = RedshiftDbAdapter(Redshift())
-
-    threshold = float(THRESHOLD) if THRESHOLD else None
-    classifier_threshold = float(CLASSIFIER_THRESHOLD) if CLASSIFIER_THRESHOLD else None
-
-    encoder_path = "encoder.pt"
-    download_model(ENCODER_URL, encoder_path)
-
-    classifier_path = "classifier.pt"
-    download_model(CLASSIFIER_URL, classifier_path)
-
-    step_2_run_search(
-        db,
-        encoder_path=encoder_path,
-        classifier_path=classifier_path,
-        source_table=SOURCE_TABLE,
-        tokens_table=TOKENS_TABLE,
-        dup_candidate_table=DUP_CANDIDATE_TABLE,
-        dup_output_table=DUP_OUTPUT_TABLE,
-        threshold=threshold,
-        classifier_threshold=classifier_threshold,
-        source_pool=SOURCE_POOL,
-        search_pool=SEARCH_POOL,
-        n_trees=N_TREES,
-        n_closest=N_CLOSEST,
-        search_k=SEARCH_K,
-        batch_size=BATCH_SIZE,
-    )
-
-
-if __name__ == "__main__":
-    main()

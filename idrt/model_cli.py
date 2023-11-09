@@ -1,7 +1,7 @@
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from typing import Literal, Optional, Union
 
-from data import ALL_FIELDS
+from idrt.data import ALL_FIELDS
 
 
 def make_universal_args(
@@ -24,9 +24,10 @@ def make_universal_args(
         parser.add_argument(
             "--metric",
             help=(
-                "The metric to use to determine distance between two embedding vectors. 'CosineMetric'"
-                " or 'ContrastiveMetric' (euclidean). WARNING: Margin and threshold values differ conceptually"
-                " for different metrics. WARNING: Do NOT mix metrics for pre-trained models!"
+                "The metric to use to determine distance between two embedding vectors."
+                " 'CosineMetric' or 'ContrastiveMetric' (euclidean). WARNING: Margin"
+                " and threshold values differ conceptually for different metrics."
+                " WARNING: Do NOT mix metrics for pre-trained models!"
             ),
             default="ContrastiveMetric",
         )

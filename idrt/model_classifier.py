@@ -5,8 +5,8 @@ import torch.nn as nn
 from torchvision.ops import MLP
 
 
-from data import Field
-from model import ContactEncoder
+from idrt.data import Field
+from idrt.model import ContactEncoder
 
 
 # This didn't seem to help, but it's a neat idea. Maybe with less MLP layers this would help.

@@ -1,33 +1,21 @@
-import os
 import sys
 from typing import List, Optional
 import logging
 import torch
 import lightning.pytorch as pl
 
-from parsons.databases.redshift import Redshift
-
 import petl as etl
 from pypika import Table as SQLTable, Query, Order, functions as fn
-
-from utils import (
-    init_rs_env,
-    get_model,
-    check_encoder_uuid,
-    table_from_full_path,
-    combine_queries,
-    download_model,
-)
-
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
 
 from idrt.train import PlContactEncoder
 from idrt.data import Field, ContactSingletonDataModule
 
-from database_adapter import DatabaseAdapter, EtlTable
-from redshift_db_adapter import RedshiftDbAdapter
+from idrt.algorithm.database_adapter import DatabaseAdapter, EtlTable
+from idrt.algorithm.utils import (
+    get_model,
+    check_encoder_uuid,
+    combine_queries,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -134,7 +122,7 @@ def upload_prepared_data(
     )
 
 
-def step_1_prepare_data(
+def step_1_encode_contacts(
     db: DatabaseAdapter,
     batch_size: int,
     data_table: SQLTable,
@@ -142,8 +130,9 @@ def step_1_prepare_data(
     output_table: SQLTable,
     limit: int,
     encoder_path: str,
+    enable_progress_bar: bool = True,
 ):
-    pl_trainer = pl.Trainer(enable_progress_bar=False)
+    pl_trainer = pl.Trainer(enable_progress_bar=enable_progress_bar)
     pl_model = get_model(PlContactEncoder, encoder_path)
     encoder_uuid: str = pl_model.hparams.uuid  # type: ignore
 
@@ -211,36 +200,3 @@ def step_1_prepare_data(
     logger.debug(uploads)
 
     db.upsert(output_table, uploads, "primary_key")
-
-
-def main():
-    logging.basicConfig()
-
-    BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
-
-    SCHEMA = os.environ["OUTPUT_SCHEMA"]
-    DATA_TABLE = table_from_full_path(os.environ["DATA_TABLE"])
-    TOKENS_TABLE = table_from_full_path(SCHEMA + ".idr_tokens")
-    OUTPUT_TABLE = table_from_full_path(SCHEMA + ".idr_out")
-    LIMIT = int(os.getenv("LIMIT", str(500_000)))
-    MODEL_URL = os.environ["MODEL_URL"]
-
-    init_rs_env()
-    db = RedshiftDbAdapter(Redshift())
-
-    model_path = "encoder.pt"
-    download_model(MODEL_URL, model_path)
-
-    step_1_prepare_data(
-        db,
-        batch_size=BATCH_SIZE,
-        data_table=DATA_TABLE,
-        tokens_table=TOKENS_TABLE,
-        output_table=OUTPUT_TABLE,
-        limit=LIMIT,
-        encoder_path=model_path,
-    )
-
-
-if __name__ == "__main__":
-    main()

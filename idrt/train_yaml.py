@@ -12,7 +12,7 @@ def yaml_to_namespace(yaml_path):
 
 
 if __name__ == "__main__":
-    from train import train
+    from idrt.train import train
 
     parser = argparse.ArgumentParser(description="Run trainer with YAML arguments.")
     parser.add_argument("yaml_path", type=str, help="Path to the YAML file")

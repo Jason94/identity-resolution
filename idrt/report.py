@@ -7,12 +7,12 @@ import base64
 from enum import Enum, auto
 from io import BytesIO
 
-from config import model_path
-from data import ContactDataModule
-from train import PlContactEncoder
-from eval import eval_model
-from model_cli import make_evaluation_args
-from contrastive_metric import ContrastiveLoss, is_duplicate
+from idrt.config import model_path
+from idrt.data import ContactDataModule
+from idrt.train import PlContactEncoder
+from idrt.eval import eval_model
+from idrt.model_cli import make_evaluation_args
+from idrt.contrastive_metric import ContrastiveLoss, is_duplicate
 
 
 def embed_matplotlib_figure(fig):

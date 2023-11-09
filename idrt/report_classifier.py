@@ -9,12 +9,12 @@ from pathlib import Path
 import pandas as pd
 from sklearn.metrics import precision_score, recall_score, f1_score
 
-from model_cli import *
-from data import ContactDataModule
-from train_classifier import PlContactsClassifier
-from utilities import transpose_dict_of_lists
-from report import create_html_report, ReportMode
-from train import PlContactEncoder
+from idrt import model_cli
+from idrt.data import ContactDataModule
+from idrt.train_classifier import PlContactsClassifier
+from idrt.utilities import transpose_dict_of_lists
+from idrt.report import create_html_report, ReportMode
+from idrt.train import PlContactEncoder
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -146,10 +146,10 @@ def main(
 if __name__ == "__main__":
     logging.basicConfig()
 
-    parser = make_universal_args(mode="classifier")
-    make_evaluation_args(parser, mode="classifier")
-    make_data_args(parser, needs_training=False)
-    make_model_io_args(parser)
+    parser = model_cli.make_universal_args(mode="classifier")
+    model_cli.make_evaluation_args(parser, mode="classifier")
+    model_cli.make_data_args(parser, needs_training=False)
+    model_cli.make_model_io_args(parser)
     parser.add_argument(
         "--failed",
         action="store_true",

@@ -5,10 +5,6 @@ from torch import nn
 from torchvision.ops import MLP
 import math
 from argparse import Namespace
-import os
-import sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from idrt.data import Field, smart_parse_field
 
