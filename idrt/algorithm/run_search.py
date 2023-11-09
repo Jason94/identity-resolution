@@ -28,7 +28,7 @@ from idrt.algorithm.utils import (
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(loging.INFO)
+logger.setLevel(logging.INFO)
 
 
 class Mode(Enum):
