@@ -130,8 +130,9 @@ def step_1_encode_contacts(
     output_table: SQLTable,
     limit: int,
     encoder_path: str,
+    enable_progress_bar: bool = True,
 ):
-    pl_trainer = pl.Trainer(enable_progress_bar=False)
+    pl_trainer = pl.Trainer(enable_progress_bar=enable_progress_bar)
     pl_model = get_model(PlContactEncoder, encoder_path)
     encoder_uuid: str = pl_model.hparams.uuid  # type: ignore
 

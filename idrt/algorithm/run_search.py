@@ -445,6 +445,7 @@ def evaluate_candidates(
     dup_output_table: SQLTable,
     batch_size: int,
     classifier_threshold: Optional[float],
+    enable_progress_bar: bool,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Found device {device}")
@@ -488,7 +489,7 @@ def evaluate_candidates(
     pl_data.prepare_data()
     pl_data.setup("predict")
 
-    trainer = pl.Trainer(enable_progress_bar=False)
+    trainer = pl.Trainer(enable_progress_bar=enable_progress_bar)
 
     logger.info("Running classification model. This will take a while!")
     all_evaluated_pairs = []
@@ -551,6 +552,7 @@ def step_2_run_search(
     n_closest: int = 1,
     search_k: int = -1,
     batch_size: int = 16,
+    enable_progress_bar: bool = True,
 ):
     execution_mode = determine_mode(search_pool, source_pool)
 
@@ -593,4 +595,5 @@ def step_2_run_search(
         dup_output_table=dup_output_table,
         batch_size=batch_size,
         classifier_threshold=classifier_threshold,
+        enable_progress_bar=enable_progress_bar,
     )
