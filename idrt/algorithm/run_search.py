@@ -473,7 +473,7 @@ def evaluate_candidates(
 
     logger.info("Saving candidates data to disk.")
     data_filename = "prepared_data.csv"
-    etl.tocsv(n_candidates, data_filename)
+    etl.tocsv(candidates_data, data_filename)
 
     logger.info(f"Assembling data module using batch size {batch_size}.")
     pl_data = ContactDataModule(
