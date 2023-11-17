@@ -1,4 +1,5 @@
 import sys
+import os
 from typing import List, Optional
 import logging
 import torch
@@ -27,6 +28,7 @@ DATA_PATH = "data.csv"
 def load_data_conditionally(
     db: DatabaseAdapter,
     data_table: SQLTable,
+    invalid_table: SQLTable,
     output_table: SQLTable,
     fields: List[Field],
     limit: int,
@@ -76,6 +78,13 @@ def load_data_conditionally(
     else:
         logger.info("Output table does not exist.")
 
+    if db.table_exists(invalid_table):
+        logger.info("Cached invalid rows detected.")
+
+        load_temp_data = load_temp_data.left_join(invalid_table).on(
+            temp_table.primary_key == invalid_table.primary_key
+        )
+
     return combine_queries(temp_table_query, load_temp_data)
 
 
@@ -83,19 +92,19 @@ def save_data(
     db: DatabaseAdapter,
     fields: List[Field],
     data_table: SQLTable,
+    invalid_table: SQLTable,
     output_table: SQLTable,
     limit: int,
 ) -> EtlTable:
-    query = load_data_conditionally(db, data_table, output_table, fields, limit)
+    query = load_data_conditionally(
+        db, data_table, invalid_table, output_table, fields, limit
+    )
     logger.info(f"Executing: {query}")
     data = db.execute_query(query) or []
     n_rows = etl.nrows(data)
 
     if n_rows == 0:
         logger.info("No rows found. Exiting.")
-        sys.exit()
-    elif n_rows > limit:
-        logger.info(f"Rows found: {n_rows} greater than limit {limit}.")
         sys.exit()
 
     logger.info(f"Found {n_rows} rows.")
@@ -122,12 +131,29 @@ def upload_prepared_data(
     )
 
 
+def save_invalid_rows(
+    db: DatabaseAdapter,
+    invalid_table: SQLTable,
+    invalid_rows_filename: str,
+    clean: bool = True,
+):
+    invalid_data = etl.fromcsv(invalid_rows_filename)
+    # TODO: Cut to just primary_key and pool cols
+    logger.info(f"Uploading invalid rows to {invalid_rows_filename}")
+    db.upsert(invalid_table, invalid_data, primary_key=["primary_key", "pool"])
+
+    if clean:
+        # TODO: Delete the CSV file
+        pass
+
+
 def step_1_encode_contacts(
     db: DatabaseAdapter,
     batch_size: int,
     data_table: SQLTable,
     tokens_table: SQLTable,
     output_table: SQLTable,
+    invalid_table: SQLTable,
     limit: int,
     encoder_path: str,
     enable_progress_bar: bool = True,
@@ -135,6 +161,7 @@ def step_1_encode_contacts(
     pl_trainer = pl.Trainer(enable_progress_bar=enable_progress_bar)
     pl_model = get_model(PlContactEncoder, encoder_path)
     encoder_uuid: str = pl_model.hparams.uuid  # type: ignore
+    invalid_rows_filename = os.path.join(os.getcwd(), "invalid_rows.csv")
 
     check_encoder_uuid(db, encoder_uuid, output_table)
 
@@ -144,7 +171,7 @@ def step_1_encode_contacts(
     for f in fields:
         logger.info(f"\t{f}")
 
-    save_data(db, fields, data_table, output_table, limit)
+    save_data(db, fields, data_table, invalid_table, output_table, limit)
 
     pl_data = ContactSingletonDataModule(
         data_dir="",
@@ -154,9 +181,10 @@ def step_1_encode_contacts(
         preserve_text_fields=False,
     )
     logger.info("Preparing data.")
-    pl_data.prepare_data(overwrite=True)
+    pl_data.prepare_data(overwrite=True, invalid_rows_filename=invalid_rows_filename)
 
     upload_prepared_data(db, pl_data, tokens_table)
+    save_invalid_rows(db, invalid_table, invalid_rows_filename)
 
     logger.info("Running model. This will take a while!")
     results: Optional[List[torch.Tensor]] = pl_trainer.predict(

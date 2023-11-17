@@ -189,13 +189,24 @@ class ContactDataModule(pl.LightningDataModule):
         return True
 
     @staticmethod
-    def _read_data(vocabulary: List[str], filename: str):
+    def _read_data(
+        vocabulary: List[str], filename: str
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Returns:
+            Tuple[List[Dict], List[Dict]]: (List of valid rows, list of invalivd rows)
+        """
         with open(filename, "r", encoding="utf8") as file:
             reader = csv.DictReader(file)
-            data = [
-                row for row in reader if ContactDataModule.valid_row(vocabulary, row)
-            ]
-        return data
+            valid: List[dict] = []
+            invalid: List[dict] = []
+            for row in reader:
+                if ContactDataModule.valid_row(vocabulary, row):
+                    valid.append(row)
+                else:
+                    invalid.append(row)
+
+        return valid, invalid
 
     @staticmethod
     def _preprocess_field_text(field_text: str) -> str:
@@ -271,6 +282,7 @@ class ContactDataModule(pl.LightningDataModule):
         overwrite: bool = False,
         overwrite_train_val: bool = False,
         shuffle: bool = False,
+        invalid_rows_filename: Optional[str] = None,
     ) -> None:
         writepath = os.path.join(self.data_dir, self.prepared_file)
         write_prepared_file = not os.path.exists(writepath) or overwrite
@@ -287,14 +299,25 @@ class ContactDataModule(pl.LightningDataModule):
             logger.info("Assembling prepared data.")
 
             logger.info(f"Preparing {len(self.data_lists)} lists")
-            data = []
+            valid_data = []
+            invalid_data = []
             for list in self.data_lists:
                 filename = os.path.join(self.data_dir, list)
-                file_data = ContactDataModule._read_data(self.vocabulary, filename)
-                logger.info(f"Found {len(file_data)} valid rows in {list}.csv")
-                data.extend(file_data)
+                valid_file_data, invalid_file_data = ContactDataModule._read_data(
+                    self.vocabulary, filename
+                )
+                logger.info(f"Found {len(valid_file_data)} valid rows in {list}.csv")
+                valid_data.extend(valid_file_data)
+                if invalid_rows_filename:
+                    invalid_data.extend(invalid_file_data)
 
-            df = pd.DataFrame(data, dtype="string").astype({"label": int})
+            df = pd.DataFrame(valid_data, dtype="string").astype({"label": int})
+            if invalid_rows_filename:
+                invalid_df = pd.DataFrame(invalid_data, dtype="string").astype(
+                    {"label": int}
+                )
+            else:
+                invalid_df = None
 
             if self.balance_classes:
                 # count the number of instances for each class
@@ -353,6 +376,7 @@ class ContactDataModule(pl.LightningDataModule):
         else:
             logger.info(f"Loading existing prepared data from {writepath}")
             df = pd.read_csv(writepath, keep_default_na=False)
+            invalid_df = None
 
         if self.corrections_file is not None and (
             write_prepared_file or write_train_val
@@ -372,6 +396,10 @@ class ContactDataModule(pl.LightningDataModule):
         if write_prepared_file:
             df.to_csv(writepath, index=False)
             logger.info(f"Wrote prepared data to {self.prepared_file}")
+
+            if invalid_df is not None and invalid_rows_filename:
+                invalid_df.to_csv(invalid_rows_filename, index=False)
+                logger.info(f"Wrote invalid rows to {invalid_rows_filename}")
 
         if write_train_val or write_prepared_file:
             if shuffle:
@@ -569,6 +597,7 @@ class ContactSingletonDataModule(pl.LightningDataModule):
         overwrite: bool = False,
         overwrite_train_val: bool = False,
         shuffle: bool = False,
+        invalid_rows_filename: Optional[str] = None,
     ) -> None:
         writepath = os.path.join(self.data_dir, self.prepared_file)
         write_prepared_file = not os.path.exists(writepath) or overwrite
@@ -578,17 +607,26 @@ class ContactSingletonDataModule(pl.LightningDataModule):
 
             logger.info(f"Preparing {len(self.data_lists)} lists")
             data = []
+            invalid_data = []
             for list in self.data_lists:
                 filename = os.path.join(self.data_dir, list)
-                file_data = ContactDataModule._read_data(self.vocabulary, filename)
+                file_data, invalid_file_data = ContactDataModule._read_data(
+                    self.vocabulary, filename
+                )
                 logger.info(f"Found {len(file_data)} valid rows in {list}.csv")
                 data.extend(file_data)
+                if invalid_rows_filename:
+                    invalid_data.extend(invalid_file_data)
 
             if len(data) == 0:
                 logger.info("No valid rows found. Exiting.")
                 sys.exit()
 
             df = pd.DataFrame(data, dtype="string")
+            if invalid_rows_filename:
+                invalid_df = pd.DataFrame(invalid_data, dtype="string")
+            else:
+                invalid_df = None
 
             logger.info(f"Saving {len(df)} rows.")
 
@@ -623,10 +661,15 @@ class ContactSingletonDataModule(pl.LightningDataModule):
         else:
             logger.info(f"Loading existing prepared data from {writepath}")
             df = pd.read_csv(writepath, keep_default_na=False)
+            invalid_df = None
 
         if write_prepared_file:
             df.to_csv(writepath, index=False)
             logger.info(f"Wrote prepared data to {self.prepared_file}")
+
+            if invalid_df is not None and invalid_rows_filename:
+                invalid_df.to_csv(invalid_rows_filename, index=False)
+                logger.info(f"Wrote invalid rows to {invalid_rows_filename}")
 
     def _read_prepared_data(
         self, filepath: str, **dataset_args
