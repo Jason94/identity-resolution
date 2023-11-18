@@ -138,12 +138,15 @@ def save_invalid_rows(
     clean: bool = True,
 ):
     invalid_data = etl.fromcsv(invalid_rows_filename)
-    invalid_data = etl.cut(invalid_data, "primary_key", "pool")
 
-    logger.info(
-        f"Uploading {etl.nrows(invalid_data)} invalid rows to {invalid_rows_filename}"
-    )
-    db.upsert(invalid_table, invalid_data, primary_key=["primary_key", "pool"])
+    # If there are no invalid rows, the CSV will have 1 row with no column headers
+    if len(invalid_data) > 0 and "primary_key" in etl.header(invalid_data):
+        invalid_data = etl.cut(invalid_data, "primary_key", "pool")
+
+        logger.info(
+            f"Uploading {etl.nrows(invalid_data)} invalid rows to {invalid_rows_filename}"
+        )
+        db.upsert(invalid_table, invalid_data, primary_key=["primary_key", "pool"])
 
     if clean:
         os.remove(invalid_rows_filename)
