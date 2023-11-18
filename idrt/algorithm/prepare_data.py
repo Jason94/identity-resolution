@@ -138,13 +138,15 @@ def save_invalid_rows(
     clean: bool = True,
 ):
     invalid_data = etl.fromcsv(invalid_rows_filename)
-    # TODO: Cut to just primary_key and pool cols
-    logger.info(f"Uploading invalid rows to {invalid_rows_filename}")
+    invalid_data = etl.cut(invalid_data, "primary_key", "pool")
+
+    logger.info(
+        f"Uploading {etl.nrows(invalid_data)} invalid rows to {invalid_rows_filename}"
+    )
     db.upsert(invalid_table, invalid_data, primary_key=["primary_key", "pool"])
 
     if clean:
-        # TODO: Delete the CSV file
-        pass
+        os.remove(invalid_rows_filename)
 
 
 def step_1_encode_contacts(
